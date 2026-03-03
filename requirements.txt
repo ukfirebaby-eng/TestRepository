@@ -1,0 +1,6 @@
+# Simple Job Scheduler
+# Python >= 3.11 required
+# No external dependencies - uses Python stdlib only
+#
+# Development / testing:
+#   pip install pytest
