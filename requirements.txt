@@ -4,3 +4,10 @@
 #
 # Development / testing:
 #   pip install pytest
+
+# Runtime (Novel Genesis Pipeline) — optional, only needed for full pipeline runs
+langgraph>=0.2
+langchain-openai>=0.1
+
+# Development / testing
+pytest
