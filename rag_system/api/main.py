@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from rag_system.api.middleware.rate_limit import rate_limit_middleware
-from rag_system.api.routes import documents, evals, health, ingest, query, traces
+from rag_system.api.routes import documents, evals, graph, health, ingest, query, traces
 from rag_system.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -120,6 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents.router)
     app.include_router(traces.router)
     app.include_router(evals.router)
+    app.include_router(graph.router)
 
     return app
 
