@@ -152,6 +152,31 @@ class CreateCollectionRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Entity management
+# ---------------------------------------------------------------------------
+
+
+class CreateEntityRequest(BaseModel):
+    """Request body for POST /v1/entities."""
+
+    workspace_id: str
+    entity_type: str
+    name: str
+    canonical_name: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EntityResponse(BaseModel):
+    entity_id: str
+    workspace_id: str
+    entity_type: str
+    name: str
+    canonical_name: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+
+# ---------------------------------------------------------------------------
 # Error response
 # ---------------------------------------------------------------------------
 
