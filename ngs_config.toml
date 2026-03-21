@@ -1,0 +1,25 @@
+# ngs_config.toml — Novel Genesis System default configuration
+#
+# Copy this file and customise values before starting a new novel project.
+# All keys are optional; the pipeline falls back to dataclass defaults when
+# a key is absent.
+
+[pipeline]
+output_dir    = "novel_output"   # root directory for all generated artefacts
+beta_interval = 10               # every Nth scene receives a Beta Reader report
+
+[models]
+structural_model = "claude-sonnet-4-6"   # used for intent, audit, mutation nodes
+prose_model      = "claude-sonnet-4-6"   # used for draft and revision nodes
+
+[revision]
+max_revision_passes = 3   # cap on how many times a scene can be rewritten
+
+# --- Phase J.2 ---
+# Probability threshold (0.0 – 1.0) above which the Cognitive Overload Precheck
+# emits a warn-level alert before prose generation.
+#   0.45 → earlier / more sensitive warnings
+#   0.60 → default (balanced precision / recall)
+#   0.75 → alerts only for near-certain failures
+# The pipeline never aborts based on this value; it warns only.
+# overload_threshold = 0.60

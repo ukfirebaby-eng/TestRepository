@@ -4,3 +4,13 @@
 #
 # Development / testing:
 #   pip install pytest
+
+# --- Phase J.2: ML layer (offline training tools only) ---
+# These packages are NOT required to run the pipeline itself.
+# Install only when using ngs_ml_extractor.py or train_overload_model.py.
+#
+#   pip install scikit-learn pandas
+#
+scikit-learn>=1.3
+pandas>=2.0
+# joblib and numpy are transitive dependencies of scikit-learn
