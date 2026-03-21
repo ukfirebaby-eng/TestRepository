@@ -43,6 +43,7 @@ def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id
 
         # Once ingestion is done, immediately hunt for contradictions
         friction_lines = orchestrator.interrogate_friction()
+        orchestrator.interrogate_fragility()
 
         # Store friction lines keyed by document_id for the canvas endpoint
         DOCUMENT_STORE[document_id] = friction_lines
@@ -157,12 +158,14 @@ async def get_canvas_data(document_id: str):
         edges = [dict(row) for row in cursor.fetchall()]
 
         friction_lines = vault.get_friction_lines(document_id) or DOCUMENT_STORE.get(document_id, [])
+        fragility_lines = vault.get_fragility_lines(document_id)
 
         return {
             "document_id": document_id,
             "nodes": nodes,
             "edges": edges,
-            "friction_lines": friction_lines
+            "friction_lines": friction_lines,
+            "fragility_lines": fragility_lines
         }
     except HTTPException:
         raise
