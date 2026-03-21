@@ -179,6 +179,7 @@ class DiamondOrchestrator:
 
             verified.append({
                 "hub_node_id": hub["id"],
+                "dependency_count": hub["dependency_count"],
                 "insight": result["insight"],
                 "cascade_nodes": result["cascade_nodes"]
             })

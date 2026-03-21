@@ -615,11 +615,8 @@
                 </div>
             `).join('');
 
-            // Note: cascade_nodes.length is the LLM-identified cascade path length, not
-            // the raw SQL dependency_count. These differ when the LLM identifies fewer
-            // cascade nodes than total dependents. The subtitle uses the cascade count.
             document.getElementById('panel-details').innerHTML = `
-                <p class="fragility-subtitle">Single Point of Failure &middot; ${cascadeNodes.length} cascade node${cascadeNodes.length !== 1 ? 's' : ''} identified</p>
+                <p class="fragility-subtitle">Single Point of Failure &middot; ${fragData.dependency_count || cascadeNodes.length} node${(fragData.dependency_count || cascadeNodes.length) !== 1 ? 's' : ''} depend on this</p>
                 <div class="fragility-section">
                     <p class="fragility-section-label">What fails if this node fails</p>
                     <p class="fragility-insight">${escHtml(fragData.insight || '')}</p>

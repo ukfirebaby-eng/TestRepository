@@ -96,6 +96,7 @@ class HybridVault:
                 id TEXT PRIMARY KEY,
                 document_id TEXT NOT NULL,
                 hub_node_id TEXT NOT NULL,
+                dependency_count INTEGER NOT NULL DEFAULT 0,
                 insight TEXT NOT NULL,
                 cascade_nodes TEXT NOT NULL
             )
@@ -336,7 +337,7 @@ class HybridVault:
         """Retrieves persisted fragility results for a document."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT id, hub_node_id, insight, cascade_nodes
+            SELECT id, hub_node_id, dependency_count, insight, cascade_nodes
             FROM fragility_lines WHERE document_id = ?
         """, (document_id,))
         rows = cursor.fetchall()
@@ -353,12 +354,13 @@ class HybridVault:
         cursor.execute("DELETE FROM fragility_lines WHERE document_id = ?", (document_id,))
         for i, r in enumerate(results):
             cursor.execute("""
-                INSERT INTO fragility_lines (id, document_id, hub_node_id, insight, cascade_nodes)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO fragility_lines (id, document_id, hub_node_id, dependency_count, insight, cascade_nodes)
+                VALUES (?, ?, ?, ?, ?, ?)
             """, (
                 f"{document_id}_frag_{i}",
                 document_id,
                 r["hub_node_id"],
+                r.get("dependency_count", 0),
                 r["insight"],
                 json.dumps(r["cascade_nodes"])
             ))
