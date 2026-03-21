@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Set
 
 from .job import Job, JobStatus
+from .resolver import GenesisResolver, RecoveryAction
 from .schedules import Schedule
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class Scheduler:
         max_workers: int = 4,
         tick_interval: float = 1.0,
         clock: Optional[Callable[[], datetime]] = None,
+        resolver: Optional[GenesisResolver] = None,
     ) -> None:
         """
         Args:
@@ -59,6 +61,10 @@ class Scheduler:
             tick_interval:  Seconds between scheduling loop iterations.
             clock:          Injectable clock function (defaults to datetime.now).
                             Useful for deterministic testing.
+            resolver:       Optional :class:`~scheduler.resolver.GenesisResolver`
+                            for intelligent failure recovery.  When provided,
+                            the resolver's verdict overrides the default
+                            retry/fail logic in :meth:`_handle_result`.
         """
         self._jobs: Dict[str, Job] = {}
         self._lock = threading.RLock()
@@ -68,6 +74,7 @@ class Scheduler:
         self._loop_thread: Optional[threading.Thread] = None
         self._tick_interval = tick_interval
         self._clock = clock or datetime.now
+        self._resolver = resolver
 
     # ------------------------------------------------------------------
     # Job registration
@@ -226,6 +233,14 @@ class Scheduler:
 
         Called while holding self._lock.
         Decides whether to mark completed, retry, or reschedule.
+
+        When a :class:`~scheduler.resolver.GenesisResolver` is configured,
+        its verdict takes precedence over the default retry/fail logic:
+
+        * ``RETRY_IMMEDIATE`` / ``RETRY_BACKOFF`` / ``SURGICAL_RETRY`` —
+          schedules a retry at the resolver-specified delay.
+        * ``SKIP`` / ``ESCALATE`` — marks the job FAILED and reschedules
+          for its next natural fire time (if any).
         """
         if result.success:
             job.mark_completed()
@@ -234,7 +249,50 @@ class Scheduler:
                 logger.info("Job %r expired (one-time schedule)", job.name)
             else:
                 logger.debug("Job %r rescheduled for %s", job.name, nxt)
+            return
+
+        # --- failure path ---------------------------------------------------
+        if self._resolver is not None:
+            resolution = self._resolver.resolve(job, self._jobs)
+            action = resolution.action
+            delay = (
+                resolution.modified_retry_delay
+                if resolution.modified_retry_delay is not None
+                else job.retry_delay_seconds
+            )
+
+            if action in (
+                RecoveryAction.RETRY_IMMEDIATE,
+                RecoveryAction.RETRY_BACKOFF,
+                RecoveryAction.SURGICAL_RETRY,
+            ):
+                retry_at = result.finished_at + timedelta(seconds=delay)
+                job.schedule_retry(retry_at)
+                logger.info(
+                    "Job %r — resolver action=%s, retry at %s",
+                    job.name, action.value, retry_at,
+                )
+            else:
+                # SKIP or ESCALATE: mark failed, still allow future schedule ticks
+                job.mark_failed()
+                if action == RecoveryAction.ESCALATE:
+                    logger.error(
+                        "Job %r escalated after %d attempt(s): %s",
+                        job.name, len(job.history), resolution.details,
+                    )
+                nxt = job.compute_next_run(result.finished_at)
+                if nxt is not None:
+                    job.status = JobStatus.PENDING
+                    logger.warning(
+                        "Job %r failed (%s), rescheduled for %s",
+                        job.name, action.value, nxt,
+                    )
+                elif job.status == JobStatus.EXPIRED:
+                    # compute_next_run set EXPIRED on a failed one-time job;
+                    # revert so dependent jobs don't treat this as a success.
+                    job.status = JobStatus.FAILED
         else:
+            # Default behaviour (no resolver configured)
             if job.retry_count < job.max_retries:
                 retry_at = result.finished_at + timedelta(
                     seconds=job.retry_delay_seconds
@@ -242,7 +300,7 @@ class Scheduler:
                 job.schedule_retry(retry_at)
                 logger.warning(
                     "Job %r failed, retry %d/%d at %s",
-                    job.name, job.retry_count, job.max_retries, retry_at
+                    job.name, job.retry_count, job.max_retries, retry_at,
                 )
             else:
                 job.mark_failed()
@@ -252,8 +310,12 @@ class Scheduler:
                     job.status = JobStatus.PENDING
                     logger.warning(
                         "Job %r failed (retries exhausted), rescheduled for %s",
-                        job.name, nxt
+                        job.name, nxt,
                     )
+                elif job.status == JobStatus.EXPIRED:
+                    # compute_next_run set EXPIRED on a failed one-time job;
+                    # revert so dependent jobs don't treat this as a success.
+                    job.status = JobStatus.FAILED
 
     # ------------------------------------------------------------------
     # Dependency graph helpers

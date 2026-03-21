@@ -21,6 +21,16 @@ Quick start::
 
 from .cron_parser import CronExpression, CronParseError
 from .job import Job, JobResult, JobStatus
+from .resolver import (
+    ErrorCategory,
+    ErrorClassifier,
+    GenesisResolver,
+    RecoveryAction,
+    ResolutionResult,
+    Violation,
+    ViolationDetector,
+    ViolationType,
+)
 from .schedules import CronSchedule, IntervalSchedule, OneTimeSchedule, Schedule
 from .scheduler import (
     CircularDependencyError,
@@ -47,4 +57,13 @@ __all__ = [
     "JobNotFoundError",
     # Low-level cron
     "CronExpression",
+    # Genesis Resolver
+    "GenesisResolver",
+    "ErrorClassifier",
+    "ErrorCategory",
+    "ViolationDetector",
+    "ViolationType",
+    "Violation",
+    "RecoveryAction",
+    "ResolutionResult",
 ]
