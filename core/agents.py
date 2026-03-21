@@ -1,7 +1,7 @@
 import os
 import json
 from openai import OpenAI
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 def _get_client() -> OpenAI:
     """Lazy client instantiation so import doesn't fail if OPENAI_API_KEY is not yet set."""
@@ -118,3 +118,68 @@ class ContradictionHunterAgent:
         except Exception as e:
             print(f"[!] Contradiction Hunter Failed: {e}")
             return {"is_genuine": False, "confidence": 0.0, "analysis": "Error during verification."}
+
+
+class FragilityAgent:
+    """
+    The Professional Skeptic. Verifies hub node fragility and produces
+    a cascade collapse analysis for confirmed single points of failure.
+    """
+
+    SYSTEM_PROMPT = """
+You are a Professional Skeptic and Risk Architect reviewing a knowledge graph for structural fragility.
+
+You will be given:
+1. A HUB NODE: a concept that multiple other nodes explicitly depend on.
+2. ITS DEPENDENTS: the nodes that require it.
+3. THE SOURCE TEXT: the raw document passage that produced this node.
+
+YOUR TASK — Two mandatory steps:
+
+STEP 1 — VERIFY: Is this a genuine single point of failure?
+A hub node is SPURIOUS if:
+- It is a generic concept (e.g. "process", "system", "team") that appears frequently as boilerplate.
+- The dependents are from unrelated contexts and do not logically share this dependency.
+- The dependency is merely administrative or nominal, not operational.
+
+STEP 2 — ANALYSE (only if genuine): Describe the cascade collapse. What fails, in what order, and why does it matter operationally? Be specific and unsparing.
+
+Respond ONLY with valid JSON in exactly this format:
+{
+  "is_genuine": true or false,
+  "confidence": a float between 0.0 and 1.0,
+  "cascade_nodes": ["node name 1", "node name 2"],
+  "insight": "Your cascade analysis if genuine, or a one-sentence explanation of why it is spurious."
+}
+"""
+
+    @staticmethod
+    def analyse(hub_name: str, dependent_names: List[str], source_text: str) -> Dict[str, Any]:
+        """
+        Verifies whether a hub node is a genuine single point of failure and,
+        if so, produces a cascade analysis.
+        """
+        prompt_payload = f"""
+HUB NODE: {hub_name}
+
+ITS DEPENDENTS:
+{chr(10).join(f'- {name}' for name in dependent_names)}
+
+THE SOURCE TEXT:
+{source_text}
+"""
+        try:
+            response = _get_client().chat.completions.create(
+                model="gpt-4o",
+                temperature=0.1,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": FragilityAgent.SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt_payload}
+                ]
+            )
+            return json.loads(response.choices[0].message.content)
+
+        except Exception as e:
+            print(f"[!] Fragility Agent Failed: {e}")
+            return {"is_genuine": False, "confidence": 0.0, "cascade_nodes": [], "insight": "Error during analysis."}
