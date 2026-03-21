@@ -90,6 +90,22 @@ class HybridVault:
         # Friction Lines Index
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_friction_lines_document ON friction_lines(document_id)")
 
+        # Fragility Lines Table — persists DLI hub node analysis
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS fragility_lines (
+                id            TEXT PRIMARY KEY,
+                document_id   TEXT NOT NULL,
+                hub_node_id   TEXT NOT NULL,
+                insight       TEXT NOT NULL,
+                cascade_nodes TEXT NOT NULL
+            )
+        """)
+
+        # Fragility Lines Index
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fragility_lines_document ON fragility_lines(document_id)"
+        )
+
         self.conn.commit()
 
     def insert_document_chunk(self, chunk_id: str, document_id: str, text: str, page: int, bbox: Tuple[float, float, float, float]) -> None:
