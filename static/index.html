@@ -616,7 +616,7 @@
             `).join('');
 
             document.getElementById('panel-details').innerHTML = `
-                <p class="fragility-subtitle">Single Point of Failure &middot; ${fragData.dependency_count || cascadeNodes.length} node${(fragData.dependency_count || cascadeNodes.length) !== 1 ? 's' : ''} depend on this</p>
+                <p class="fragility-subtitle">Single Point of Failure &middot; ${fragData.dependency_count ?? 0} node${(fragData.dependency_count ?? 0) !== 1 ? 's' : ''} depend on this</p>
                 <div class="fragility-section">
                     <p class="fragility-section-label">What fails if this node fails</p>
                     <p class="fragility-insight">${escHtml(fragData.insight || '')}</p>
