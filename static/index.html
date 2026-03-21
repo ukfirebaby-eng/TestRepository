@@ -171,6 +171,21 @@
         .btn-copy:hover { background-color: #2ea043; }
         .btn-copy.copied { background-color: #1f6feb; }
 
+        /* ── Fragility Panel ── */
+        .fragility-node-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .fragility-dot { width: 12px; height: 12px; border-radius: 50%; background: #f5c542; box-shadow: 0 0 6px #f5c542; flex-shrink: 0; }
+        .fragility-node-name { color: #f5c542; font-weight: 600; font-size: 0.9rem; }
+        .fragility-subtitle { color: #8b949e; font-size: 0.75rem; margin-bottom: 12px; }
+        .fragility-section { border-left: 2px solid #f5c542; padding-left: 10px; margin-bottom: 14px; }
+        .fragility-section.cascade { border-left-color: #30363d; }
+        .fragility-section-label { color: #8b949e; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+        .fragility-insight { color: #c9d1d9; line-height: 1.5; font-size: 0.82rem; }
+        .cascade-item { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+        .cascade-num { color: #8b949e; font-size: 0.7rem; min-width: 12px; }
+        .cascade-dot { width: 8px; height: 8px; border-radius: 50%; background: #ff7b72; flex-shrink: 0; }
+        .cascade-name { color: #ff7b72; font-size: 0.8rem; }
+        .stat-value.fragility { color: #f5c542; }
+
         /* ── Toast ── */
         #toast {
             position: absolute; bottom: 20px; right: 20px; z-index: 30;
@@ -180,6 +195,7 @@
         #toast.show { opacity: 1; }
     </style>
 
+    <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
     <script src="https://unpkg.com/3d-force-graph@1.73.1"></script>
 </head>
 <body>
@@ -228,6 +244,11 @@
             <span class="stat-value friction" id="stat-friction">—</span>
             <span class="stat-label">Conflicts</span>
         </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+            <span class="stat-value fragility" id="stat-fragility">—</span>
+            <span class="stat-label">Fragility Points</span>
+        </div>
     </div>
 
     <div id="graph-container"></div>
@@ -251,6 +272,8 @@
         let activeFriction = null;
         let activeDocumentId = null;
         let frictionNodeIds = new Set();
+        let fragilityNodeIds = new Set();
+        let activeFragility = null;
         let graphLinks = [];
         let elapsedTimer = null;
         let pollTimeout = null;
@@ -455,10 +478,26 @@
         }
 
         // ── 3. WebGL Graph ──
+        // THREE is available as a global from the 3d-force-graph CDN bundle
         const Graph = ForceGraph3D()
             (document.getElementById('graph-container'))
             .backgroundColor('#0d1117')
-            .nodeColor(node => frictionNodeIds.has(node.id) ? '#f0883e' : '#58a6ff')
+            .nodeVal(node => fragilityNodeIds.has(node.id) ? 6 : 4)
+            .nodeColor(node => fragilityNodeIds.has(node.id) ? '#f5c542' : (frictionNodeIds.has(node.id) ? '#f0883e' : '#4d9ef7'))
+            .nodeThreeObject(node => {
+                if (!fragilityNodeIds.has(node.id)) return null;
+                const group = new THREE.Group();
+                const core = new THREE.Mesh(
+                    new THREE.SphereGeometry(5, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: '#f5c542' })
+                );
+                const halo = new THREE.Mesh(
+                    new THREE.SphereGeometry(8, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: '#f5c542', transparent: true, opacity: 0.2, side: THREE.BackSide })
+                );
+                group.add(core, halo);
+                return group;
+            })
             .nodeLabel(node => `<span style="background:#161b22;padding:4px 8px;border-radius:4px;font-size:12px;">${node.name}</span>`)
             .linkWidth(link => link.isFriction ? 2.5 : 0.4)
             .linkColor(link => link.isFriction ? '#ff7b72' : '#21262d')
@@ -482,6 +521,12 @@
                     frictionNodeIds.add(f.target);
                 });
 
+                // Build set of hub node IDs from fragility data
+                fragilityNodeIds = new Set();
+                const fragilityLines = data.fragility_lines || [];
+                window._fragilityLines = fragilityLines;
+                fragilityLines.forEach(f => fragilityNodeIds.add(f.hub_node_id));
+
                 const mergedLinks = [
                     ...data.edges,
                     ...frictionLines.map(f => ({ ...f, isFriction: true }))
@@ -504,9 +549,10 @@
                 // Stats HUD
                 const hud = document.getElementById('stats-hud');
                 hud.style.display = 'flex';
-                document.getElementById('stat-nodes').textContent   = data.nodes.length.toLocaleString();
-                document.getElementById('stat-edges').textContent   = data.edges.length.toLocaleString();
-                document.getElementById('stat-friction').textContent = frictionLines.length.toLocaleString();
+                document.getElementById('stat-nodes').textContent    = data.nodes.length.toLocaleString();
+                document.getElementById('stat-edges').textContent    = data.edges.length.toLocaleString();
+                document.getElementById('stat-friction').textContent  = frictionLines.length.toLocaleString();
+                document.getElementById('stat-fragility').textContent = fragilityLines.length.toLocaleString();
 
             } catch(e) {
                 console.error('Failed to load graph data:', e);
@@ -547,10 +593,65 @@
             }
         }
 
+        // ── 5b. Panel: Hub node (fragility) ──
+        function openFragilityPanel(fragData, node) {
+            activeFragility = fragData;
+            activeFriction = null;
+
+            document.getElementById('panel-type-label').textContent = 'Fragility Point';
+            document.getElementById('panel-conflict-nodes').innerHTML = `
+                <div class="fragility-node-header">
+                    <div class="fragility-dot"></div>
+                    <span class="fragility-node-name">${escHtml(node.name)}</span>
+                </div>
+            `;
+
+            const cascadeNodes = fragData.cascade_nodes || [];
+            const cascadeHtml = cascadeNodes.map((name, i) => `
+                <div class="cascade-item">
+                    <span class="cascade-num">${i + 1}</span>
+                    <div class="cascade-dot"></div>
+                    <span class="cascade-name">${escHtml(name)}</span>
+                </div>
+            `).join('');
+
+            // Note: cascade_nodes.length is the LLM-identified cascade path length, not
+            // the raw SQL dependency_count. These differ when the LLM identifies fewer
+            // cascade nodes than total dependents. The subtitle uses the cascade count.
+            document.getElementById('panel-details').innerHTML = `
+                <p class="fragility-subtitle">Single Point of Failure &middot; ${cascadeNodes.length} cascade node${cascadeNodes.length !== 1 ? 's' : ''} identified</p>
+                <div class="fragility-section">
+                    <p class="fragility-section-label">What fails if this node fails</p>
+                    <p class="fragility-insight">${escHtml(fragData.insight || '')}</p>
+                </div>
+                <div class="fragility-section cascade">
+                    <p class="fragility-section-label">Cascade path</p>
+                    ${cascadeHtml || '<p style="color:#8b949e;font-size:0.82rem;">No cascade nodes identified.</p>'}
+                </div>
+            `;
+
+            document.getElementById('panel-footer').innerHTML = `
+                <button class="btn-copy" id="btn-copy-fragility" onclick="copyFragilityAnalysis()">Copy Analysis</button>
+            `;
+
+            document.getElementById('side-panel').classList.add('open');
+        }
+
         // ── 6. Panel: Node click ──
         function openNodePanel(node) {
             activeFriction = null;
+            activeFragility = null;
+            const isHubNode = fragilityNodeIds.has(node.id);
             const isFrictionNode = frictionNodeIds.has(node.id);
+
+            // Hub nodes get their own specialised panel
+            if (isHubNode) {
+                const fragLine = (window._fragilityLines || []).find(f => f.hub_node_id === node.id);
+                if (fragLine) {
+                    openFragilityPanel(fragLine, node);
+                    return;
+                }
+            }
 
             document.getElementById('panel-type-label').textContent = isFrictionNode ? 'Friction Node' : 'Node';
             document.getElementById('panel-conflict-nodes').innerHTML = `
@@ -596,6 +697,7 @@
         function closePanel() {
             document.getElementById('side-panel').classList.remove('open');
             activeFriction = null;
+            activeFragility = null;
         }
 
         // ── 7. Copy analysis ──
@@ -605,6 +707,20 @@
             await navigator.clipboard.writeText(text);
             const btn = document.getElementById('btn-copy-analysis');
             btn.textContent = '&#10003; Copied';
+            btn.classList.add('copied');
+            showToast('Analysis copied to clipboard');
+            setTimeout(() => { btn.textContent = 'Copy Analysis'; btn.classList.remove('copied'); }, 2000);
+        }
+
+        async function copyFragilityAnalysis() {
+            if (!activeFragility) return;
+            const cascadeText = (activeFragility.cascade_nodes || [])
+                .map((n, i) => `${i + 1}. ${n}`)
+                .join('\n');
+            const text = `${activeFragility.insight}\n\nCascade path:\n${cascadeText}`;
+            await navigator.clipboard.writeText(text);
+            const btn = document.getElementById('btn-copy-fragility');
+            btn.textContent = '✓ Copied';
             btn.classList.add('copied');
             showToast('Analysis copied to clipboard');
             setTimeout(() => { btn.textContent = 'Copy Analysis'; btn.classList.remove('copied'); }, 2000);
