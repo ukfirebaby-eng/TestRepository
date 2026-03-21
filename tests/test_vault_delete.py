@@ -41,6 +41,13 @@ def _seed_document(vault, document_id="doc_test"):
     }])
 
 
+def _seed_fragility_line(vault, document_id="doc_test"):
+    """Adds a fragility line for the given document."""
+    vault.upsert_fragility_lines(document_id, [
+        {"hub_node_id": "node_a", "insight": "Critical.", "cascade_nodes": ["Node B"]}
+    ])
+
+
 class TestDeleteDocument:
     def test_deletes_document_record(self, vault):
         _seed_document(vault)
@@ -96,3 +103,11 @@ class TestDeleteDocument:
         assert cursor.fetchone() is not None
         cursor.execute("SELECT COUNT(*) FROM edges WHERE document_id = 'doc_b'")
         assert cursor.fetchone()[0] == 1
+
+    def test_deletes_fragility_lines(self, vault):
+        _seed_document(vault)
+        _seed_fragility_line(vault)
+        vault.delete_document("doc_test")
+        cursor = vault.conn.cursor()
+        cursor.execute("SELECT id FROM fragility_lines WHERE document_id = 'doc_test'")
+        assert cursor.fetchall() == []

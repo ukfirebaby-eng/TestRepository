@@ -263,6 +263,7 @@ class HybridVault:
         with self.conn:
             cursor = self.conn.cursor()
             cursor.execute("DELETE FROM friction_lines WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM fragility_lines WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM edges WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM documents WHERE id = ?", (document_id,))
 
@@ -345,3 +346,20 @@ class HybridVault:
             d["cascade_nodes"] = json.loads(d["cascade_nodes"])
             result.append(d)
         return result
+
+    def upsert_fragility_lines(self, document_id: str, results: List[Dict[str, Any]]) -> None:
+        """Persists fragility analysis results to SQLite, replacing any existing rows."""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM fragility_lines WHERE document_id = ?", (document_id,))
+        for i, r in enumerate(results):
+            cursor.execute("""
+                INSERT INTO fragility_lines (id, document_id, hub_node_id, insight, cascade_nodes)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                f"{document_id}_frag_{i}",
+                document_id,
+                r["hub_node_id"],
+                r["insight"],
+                json.dumps(r["cascade_nodes"])
+            ))
+        self.conn.commit()

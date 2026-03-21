@@ -119,3 +119,36 @@ class TestReadMethods:
         assert results[0]["hub_node_id"] == "node_b"
         assert results[0]["insight"] == "Critical bottleneck."
         assert results[0]["cascade_nodes"] == ["Node A", "Node C"]
+
+
+class TestWriteMethods:
+    def test_upsert_fragility_lines_persists_results(self, vault):
+        vault.insert_document("doc_w", "x.pdf")
+        results = [
+            {"hub_node_id": "node_b", "insight": "Critical bottleneck.", "cascade_nodes": ["Node A", "Node C"]},
+        ]
+        vault.upsert_fragility_lines("doc_w", results)
+        lines = vault.get_fragility_lines("doc_w")
+        assert len(lines) == 1
+        assert lines[0]["hub_node_id"] == "node_b"
+        assert lines[0]["cascade_nodes"] == ["Node A", "Node C"]
+
+    def test_upsert_fragility_lines_replaces_old_results(self, vault):
+        vault.insert_document("doc_w2", "x.pdf")
+        vault.upsert_fragility_lines("doc_w2", [
+            {"hub_node_id": "node_old", "insight": "Old.", "cascade_nodes": []}
+        ])
+        vault.upsert_fragility_lines("doc_w2", [
+            {"hub_node_id": "node_new", "insight": "New.", "cascade_nodes": ["X"]}
+        ])
+        lines = vault.get_fragility_lines("doc_w2")
+        assert len(lines) == 1
+        assert lines[0]["hub_node_id"] == "node_new"
+
+    def test_upsert_fragility_lines_empty_clears_results(self, vault):
+        vault.insert_document("doc_w3", "x.pdf")
+        vault.upsert_fragility_lines("doc_w3", [
+            {"hub_node_id": "node_b", "insight": "X.", "cascade_nodes": []}
+        ])
+        vault.upsert_fragility_lines("doc_w3", [])
+        assert vault.get_fragility_lines("doc_w3") == []
