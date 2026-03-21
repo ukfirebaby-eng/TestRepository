@@ -3,7 +3,7 @@ import json
 import sqlite3
 import chromadb
 from datetime import datetime, timezone
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 
 
 class HybridVault:
@@ -291,7 +291,7 @@ class HybridVault:
             result.append(d)
         return result
 
-    def get_hub_nodes(self, document_id: str, min_dependents: int = 3) -> List[Dict]:
+    def get_hub_nodes(self, document_id: str, min_dependents: int = 3) -> List[Dict[str, Any]]:
         """
         Returns nodes that are the target of >= min_dependents REQUIRES edges
         within the given document. Each result includes the list of dependent node IDs.
@@ -317,7 +317,7 @@ class HybridVault:
 
         return hubs
 
-    def get_node_source_chunk(self, node_id: str, document_id: str):
+    def get_node_source_chunk(self, node_id: str, document_id: str) -> Optional[str]:
         """
         Returns the source_chunk_id from any REQUIRES edge that targets this node
         within the given document. Returns None if no such edge exists.
@@ -331,7 +331,7 @@ class HybridVault:
         row = cursor.fetchone()
         return row["source_chunk_id"] if row else None
 
-    def get_fragility_lines(self, document_id: str) -> List[Dict]:
+    def get_fragility_lines(self, document_id: str) -> List[Dict[str, Any]]:
         """Retrieves persisted fragility results for a document."""
         cursor = self.conn.cursor()
         cursor.execute("""
