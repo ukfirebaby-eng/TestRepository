@@ -1,0 +1,120 @@
+import os
+import json
+from openai import OpenAI
+from typing import Dict, Any
+
+def _get_client() -> OpenAI:
+    """Lazy client instantiation so import doesn't fail if OPENAI_API_KEY is not yet set."""
+    return OpenAI()
+
+
+class DeconstructorAgent:
+    """
+    The deterministic parser. It reads raw text and converts it into a
+    strict JSON graph topology. It is forbidden from hallucinating or summarizing.
+    """
+
+    SYSTEM_PROMPT = """
+    You are a deterministic Knowledge Graph Extraction Engine. Your ONLY purpose is to read unstructured text and map it to a strict JSON topology.
+
+    CRITICAL DIRECTIVES:
+    1. Zero Inference: Extract ONLY what is explicitly stated in the text. Do not summarize.
+    2. Granularity: Break complex sentences down into isolated `nodes` and directional `edges`.
+    3. Allowed Edge Types: You may ONLY use: REQUIRES, BLOCKS, PRODUCES, MODIFIES, CONTRADICTS, RELATES_TO.
+
+    OUTPUT FORMAT: Valid JSON only matching this schema:
+    {
+      "nodes": [{"id": "unique_string", "label": "Concept/System/Deadline", "name": "Human Readable Name"}],
+      "edges": [{"source_id": "unique_string", "target_id": "unique_string", "relationship": "REQUIRES"}]
+    }
+    """
+
+    @staticmethod
+    def extract_topology(text_chunk: str) -> Dict[str, Any]:
+        """
+        Sends the text to the LLM and forces a JSON return.
+        """
+        try:
+            response = _get_client().chat.completions.create(
+                model="gpt-4o-mini",  # Fast, cheap, and reliable for deterministic JSON extraction
+                response_format={"type": "json_object"},
+                temperature=0.0,  # CRITICAL: 0.0 makes the AI deterministic. No creative deviations allowed.
+                messages=[
+                    {"role": "system", "content": DeconstructorAgent.SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Extract graph topology from the following text:\n\n{text_chunk}"}
+                ]
+            )
+
+            # Parse the JSON string back into a Python dictionary
+            raw_json = response.choices[0].message.content
+            return json.loads(raw_json)
+
+        except Exception as e:
+            print(f"[!] Deconstructor Agent Failed: {e}")
+            # If the LLM fails, return empty topology so the Orchestrator doesn't crash
+            return {"nodes": [], "edges": []}
+
+
+class ContradictionHunterAgent:
+    """
+    The stress tester. It first verifies whether a structural conflict is a genuine
+    logical paradox, then synthesizes a mitigation only for confirmed conflicts.
+    """
+
+    SYSTEM_PROMPT = """
+    You are a Senior Risk Architect reviewing a potential structural vulnerability in an operational knowledge graph.
+
+    You will be given:
+    1. A TOPOLOGICAL PATTERN: Node A REQUIRES Node B, but Node C BLOCKS Node B.
+    2. THE SOURCE TEXT: The raw document passages that produced these relationships.
+
+    YOUR TASK — Two mandatory steps:
+
+    STEP 1 — VERIFY: Is this a genuine operational paradox?
+    Ask yourself: do the source passages actually describe a situation where the BLOCKS relationship meaningfully prevents the REQUIRES relationship from being satisfied?
+    A conflict is SPURIOUS if:
+    - The two passages come from unrelated contexts and do not logically interact.
+    - The BLOCKS relationship is metaphorical, aspirational, or conditional rather than direct.
+    - The conflict is trivially resolved by normal sequencing (e.g., do A before B).
+    - The same concept appears under different names with no real tension.
+
+    STEP 2 — SYNTHESIZE (only if genuine): If the conflict is real, provide a specific, actionable mitigation grounded in the source text. Be direct and unsparing. No generic corporate jargon.
+
+    Respond ONLY with valid JSON in exactly this format:
+    {
+      "is_genuine": true or false,
+      "confidence": a float between 0.0 and 1.0,
+      "analysis": "Your mitigation if genuine, or a one-sentence explanation of why it is spurious."
+    }
+    """
+
+    @staticmethod
+    def synthesize_mitigation(structural_clash: str, source_text: str) -> Dict[str, Any]:
+        """
+        Verifies and analyses a structural conflict. Returns a dict with
+        is_genuine, confidence, and analysis fields.
+        """
+        prompt_payload = f"""
+        THE TOPOLOGICAL PATTERN:
+        {structural_clash}
+
+        THE SOURCE PROVENANCE (RAW TEXT):
+        {source_text}
+        """
+
+        try:
+            response = _get_client().chat.completions.create(
+                model="gpt-4o",
+                temperature=0.1,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": ContradictionHunterAgent.SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt_payload}
+                ]
+            )
+
+            return json.loads(response.choices[0].message.content)
+
+        except Exception as e:
+            print(f"[!] Contradiction Hunter Failed: {e}")
+            return {"is_genuine": False, "confidence": 0.0, "analysis": "Error during verification."}

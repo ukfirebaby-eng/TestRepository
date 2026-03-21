@@ -1,0 +1,278 @@
+import os
+import json
+import sqlite3
+import chromadb
+from datetime import datetime, timezone
+from typing import List, Dict, Tuple, Any
+
+
+class HybridVault:
+    def __init__(self, tenant_id: str, base_dir: str = "./vaults"):
+        """
+        Initializes physical file isolation for the given tenant and
+        establishes connections to both SQLite and ChromaDB.
+        """
+        self.tenant_id = tenant_id
+        self.vault_path = os.path.join(base_dir, tenant_id)
+
+        # Ensure the isolated tenant directory exists
+        os.makedirs(self.vault_path, exist_ok=True)
+
+        # 1. Initialize SQLite (The Graph Topology Engine)
+        self.sqlite_path = os.path.join(self.vault_path, "graph.sqlite")
+        self.conn = sqlite3.connect(self.sqlite_path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row  # Returns dict-like rows instead of tuples
+
+        # 2. Initialize ChromaDB (The Semantic Vector Engine)
+        self.chroma_client = chromadb.PersistentClient(path=os.path.join(self.vault_path, "chroma"))
+        self.collection = self.chroma_client.get_or_create_collection(
+            name="document_chunks",
+            metadata={"hnsw:space": "cosine"}  # Optimize for semantic similarity
+        )
+
+        # Lock in the schemas immediately
+        self.initialize_schemas()
+
+    def initialize_schemas(self) -> None:
+        """Executes the SQLite CREATE TABLE statements if they do not exist."""
+        cursor = self.conn.cursor()
+
+        # Nodes Table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS nodes (
+                id TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                name TEXT NOT NULL
+            )
+        """)
+
+        # Edges Table with the critical source_chunk_id bridge
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS edges (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL DEFAULT '',
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                relationship TEXT NOT NULL,
+                source_chunk_id TEXT NOT NULL,
+                FOREIGN KEY(source_id) REFERENCES nodes(id),
+                FOREIGN KEY(target_id) REFERENCES nodes(id)
+            )
+        """)
+
+        # Traversal Indices
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_relationship ON edges(relationship)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_document ON edges(document_id)")
+
+        # Documents Table — tracks every ingested document for UI restore
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS documents (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Friction Lines Table — persists computed diamonds so they survive restarts
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS friction_lines (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                source_node_id TEXT NOT NULL,
+                target_node_id TEXT NOT NULL,
+                diamond TEXT NOT NULL,
+                provenance_ids TEXT NOT NULL
+            )
+        """)
+
+        # Friction Lines Index
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_friction_lines_document ON friction_lines(document_id)")
+
+        self.conn.commit()
+
+    def insert_document_chunk(self, chunk_id: str, document_id: str, text: str, page: int, bbox: Tuple[float, float, float, float]) -> None:
+        """
+        Embeds the text and stores it in ChromaDB along with the strict
+        geometric metadata dictionary.
+        """
+        self.collection.add(
+            ids=[chunk_id],
+            documents=[text],
+            metadatas=[{
+                "document_id": document_id,
+                "page_number": page,
+                "x0": bbox[0],
+                "y0": bbox[1],
+                "x1": bbox[2],
+                "y1": bbox[3]
+            }]
+        )
+
+    def insert_graph_topology(self, nodes: List[Dict[str, str]], edges: List[Dict[str, str]], source_chunk_id: str, document_id: str = "") -> None:
+        """
+        Takes the JSON output from the Deconstructor Agent and safely inserts
+        it into SQLite. Wraps the insertion in a transaction to prevent partial writes.
+        """
+        cursor = self.conn.cursor()
+        try:
+            # Insert Nodes (IGNORE if they already exist from a previous chunk)
+            for node in nodes:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO nodes (id, label, name)
+                    VALUES (?, ?, ?)
+                """, (node['id'], node['label'], node['name']))
+
+            # Insert Edges (Attach the ChromaDB bridge ID and document scope to every one)
+            for edge in edges:
+                # Scope the edge ID to this document so re-ingesting doesn't collide
+                edge_id = f"{document_id}_{edge['source_id']}_{edge['relationship']}_{edge['target_id']}"
+                cursor.execute("""
+                    INSERT OR IGNORE INTO edges (id, document_id, source_id, target_id, relationship, source_chunk_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (edge_id, document_id, edge['source_id'], edge['target_id'], edge['relationship'], source_chunk_id))
+
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            print(f"[!] Graph Insertion Failed for chunk {source_chunk_id}: {e}")
+            raise
+
+    def get_triangular_conflicts(self, document_id: str = "") -> List[Dict[str, Any]]:
+        """
+        The zero-cost structural tension query. Finds A -> REQUIRES -> B, but C -> BLOCKS -> B.
+        Scoped to a single document when document_id is provided.
+        """
+        cursor = self.conn.cursor()
+        if document_id:
+            query = """
+                SELECT
+                    e1.source_id AS node_a,
+                    e1.target_id AS node_b,
+                    e2.source_id AS node_c,
+                    e1.source_chunk_id AS chunk_requires,
+                    e2.source_chunk_id AS chunk_blocks
+                FROM edges e1
+                JOIN edges e2 ON e1.target_id = e2.target_id
+                WHERE e1.relationship = 'REQUIRES'
+                  AND e2.relationship = 'BLOCKS'
+                  AND e1.document_id = ?
+                  AND e2.document_id = ?
+            """
+            cursor.execute(query, (document_id, document_id))
+        else:
+            query = """
+                SELECT
+                    e1.source_id AS node_a,
+                    e1.target_id AS node_b,
+                    e2.source_id AS node_c,
+                    e1.source_chunk_id AS chunk_requires,
+                    e2.source_chunk_id AS chunk_blocks
+                FROM edges e1
+                JOIN edges e2 ON e1.target_id = e2.target_id
+                WHERE e1.relationship = 'REQUIRES'
+                  AND e2.relationship = 'BLOCKS'
+            """
+            cursor.execute(query)
+
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_chunk_provenance(self, chunk_id: str) -> Dict[str, Any]:
+        """
+        Retrieves the exact geometric metadata and text from ChromaDB.
+        """
+        result = self.collection.get(
+            ids=[chunk_id],
+            include=["documents", "metadatas"]
+        )
+
+        if not result['ids']:
+            return {}
+
+        return {
+            "chunk_id": chunk_id,
+            "text": result['documents'][0],
+            "geometry": result['metadatas'][0]
+        }
+
+    def get_node_names(self, node_ids: List[str]) -> Dict[str, str]:
+        """Returns a mapping of node_id -> human-readable name for a list of IDs."""
+        if not node_ids:
+            return {}
+        cursor = self.conn.cursor()
+        placeholders = ','.join('?' * len(node_ids))
+        cursor.execute(f"SELECT id, name FROM nodes WHERE id IN ({placeholders})", node_ids)
+        return {row['id']: row['name'] for row in cursor.fetchall()}
+
+    def insert_document(self, document_id: str, name: str) -> None:
+        """Records a document ingestion so it can be listed and restored after a restart."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT OR IGNORE INTO documents (id, name, created_at)
+            VALUES (?, ?, ?)
+        """, (document_id, name, datetime.now(timezone.utc).isoformat()))
+        self.conn.commit()
+
+    def list_documents(self) -> List[Dict[str, Any]]:
+        """Returns all ingested documents ordered by most recent first."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, name, created_at FROM documents ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def upsert_friction_lines(self, document_id: str, friction_lines: List[Dict[str, Any]]) -> None:
+        """Persists the computed friction lines to SQLite so they survive restarts."""
+        cursor = self.conn.cursor()
+        # Clear old results for this document before writing fresh ones
+        cursor.execute("DELETE FROM friction_lines WHERE document_id = ?", (document_id,))
+        for i, fl in enumerate(friction_lines):
+            cursor.execute("""
+                INSERT INTO friction_lines (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                f"{document_id}_fl_{i}",
+                document_id,
+                fl["source"],
+                fl["target"],
+                fl["diamond"],
+                json.dumps(fl["provenance_ids"])
+            ))
+        self.conn.commit()
+
+    def delete_document(self, document_id: str) -> None:
+        """
+        Permanently removes a document and all its associated data.
+        SQLite is committed first; ChromaDB is cleaned up afterwards.
+        If ChromaDB fails, the SQLite deletion has already committed — the document
+        is gone from all UI queries and the orphaned chunks are unreachable.
+        """
+        with self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM friction_lines WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM edges WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+
+        # ChromaDB 0.4.22 raises when collection.delete() matches zero documents.
+        # Check first; skip the call if no chunks exist for this document.
+        try:
+            existing = self.collection.get(where={"document_id": {"$eq": document_id}})
+            if existing["ids"]:
+                self.collection.delete(where={"document_id": {"$eq": document_id}})
+        except Exception as e:
+            print(f"[!] Vault: ChromaDB cleanup failed for {document_id}: {e}")
+            raise
+
+    def get_friction_lines(self, document_id: str) -> List[Dict[str, Any]]:
+        """Retrieves persisted friction lines for a document."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT source_node_id AS source, target_node_id AS target, diamond, provenance_ids
+            FROM friction_lines WHERE document_id = ?
+        """, (document_id,))
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            d["provenance_ids"] = json.loads(d["provenance_ids"])
+            result.append(d)
+        return result

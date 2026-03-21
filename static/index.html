@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diamond Miner | Spatial Canvas</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { margin: 0; overflow: hidden; background-color: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+        /* ── Canvas ── */
+        #graph-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+
+        /* ── Upload Overlay ── */
+        #upload-overlay {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: rgba(13, 17, 23, 0.97); z-index: 20;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+
+        #drop-zone {
+            width: 500px; padding: 48px 50px; border: 2px dashed #30363d; border-radius: 12px;
+            text-align: center; background-color: #161b22; cursor: pointer; transition: all 0.2s;
+        }
+        #drop-zone:hover, #drop-zone.dragover { border-color: #58a6ff; background-color: #1c2128; }
+        #drop-zone .upload-icon { font-size: 2.5rem; margin-bottom: 12px; opacity: 0.6; }
+        #drop-zone.dragover .upload-icon { opacity: 1; }
+        #drop-zone h2 { margin: 0 0 8px; color: #58a6ff; font-size: 1.3rem; }
+        #drop-zone p { color: #8b949e; margin: 0; font-size: 0.9rem; }
+        #drop-zone .drag-hint { display: none; }
+        #drop-zone.dragover .drag-hint { display: block; }
+        #drop-zone.dragover .normal-hint { display: none; }
+
+        /* ── Telemetry ── */
+        #telemetry-console { display: none; text-align: center; }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid #30363d; border-top: 4px solid #58a6ff;
+            border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #telemetry-status { color: #c9d1d9; font-size: 1.1rem; margin: 0 0 8px; }
+        #telemetry-elapsed { color: #8b949e; font-size: 0.85rem; margin: 0 0 20px; }
+        #btn-retry {
+            display: none; padding: 8px 20px; background: #161b22; border: 1px solid #ff7b72;
+            color: #ff7b72; border-radius: 6px; cursor: pointer; font-size: 0.9rem;
+        }
+        #btn-retry:hover { background: #1c2128; }
+
+        /* ── Stored Docs ── */
+        #stored-docs { width: 500px; margin-top: 24px; }
+        #stored-docs h3 { color: #8b949e; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 10px; }
+        .doc-entry {
+            display: flex; justify-content: space-between; align-items: center;
+            background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+            padding: 10px 16px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s, background 0.2s;
+        }
+        .doc-entry:hover { border-color: #58a6ff; background: #1c2128; }
+        .doc-entry.active { border-color: #58a6ff; }
+        .doc-entry .doc-info { display: flex; flex-direction: column; gap: 2px; }
+        .doc-entry .doc-name { color: #c9d1d9; font-size: 0.9rem; }
+        .doc-entry .doc-meta { color: #8b949e; font-size: 0.75rem; }
+        .doc-entry .doc-badge {
+            background: rgba(255,123,114,0.15); color: #ff7b72;
+            font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+        }
+        .doc-delete-btn {
+            background: none; border: none; color: #8b949e; cursor: pointer;
+            padding: 4px 6px; border-radius: 4px; font-size: 1rem; line-height: 1;
+            transition: color 0.2s, background 0.2s; flex-shrink: 0;
+        }
+        .doc-delete-btn:hover { color: #ff7b72; background: rgba(255,123,114,0.1); }
+
+        .doc-confirm { display: flex; align-items: center; gap: 8px; width: 100%; }
+        .doc-confirm-text { flex: 1; font-size: 0.85rem; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .doc-confirm-delete {
+            background: #b91c1c; color: white; border: none; border-radius: 4px;
+            padding: 4px 12px; cursor: pointer; font-size: 0.8rem; flex-shrink: 0;
+            transition: background 0.2s;
+        }
+        .doc-confirm-delete:hover { background: #dc2626; }
+        .doc-confirm-cancel {
+            background: none; color: #8b949e; border: 1px solid #30363d; border-radius: 4px;
+            padding: 4px 10px; cursor: pointer; font-size: 0.8rem; flex-shrink: 0;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        .doc-confirm-cancel:hover { border-color: #8b949e; color: #c9d1d9; }
+
+        /* ── Toolbar ── */
+        #toolbar {
+            position: absolute; top: 16px; left: 16px; z-index: 15;
+            display: none; gap: 8px; align-items: center;
+            background: rgba(22, 27, 34, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid #30363d; border-radius: 8px; padding: 6px 10px;
+        }
+        .toolbar-btn {
+            background: transparent; border: 1px solid #30363d; color: #c9d1d9;
+            padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.82rem;
+            transition: border-color 0.2s, background 0.2s; white-space: nowrap;
+        }
+        .toolbar-btn:hover { border-color: #58a6ff; background: rgba(88,166,255,0.08); }
+        #toolbar-divider { width: 1px; height: 20px; background: #30363d; }
+        #active-doc-label { color: #8b949e; font-size: 0.8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #friction-badge {
+            background: rgba(255,123,114,0.15); color: #ff7b72;
+            font-size: 0.72rem; padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+        }
+
+        /* ── Stats HUD ── */
+        #stats-hud {
+            position: absolute; bottom: 20px; left: 20px; z-index: 10;
+            display: none; gap: 16px;
+            background: rgba(22, 27, 34, 0.8); backdrop-filter: blur(8px);
+            border: 1px solid #30363d; border-radius: 8px; padding: 8px 16px;
+        }
+        .stat-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .stat-value { font-size: 1.1rem; font-weight: 600; color: #c9d1d9; line-height: 1; }
+        .stat-value.friction { color: #ff7b72; }
+        .stat-label { font-size: 0.65rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.08em; }
+        .stat-divider { width: 1px; background: #30363d; align-self: stretch; }
+
+        /* ── Side Panel ── */
+        #side-panel {
+            position: absolute; right: -440px; top: 0; width: 440px; height: 100vh;
+            background-color: #161b22; border-left: 1px solid #30363d;
+            z-index: 10; transition: right 0.3s ease-in-out;
+            box-shadow: -5px 0 20px rgba(0,0,0,0.6); display: flex; flex-direction: column;
+        }
+        #side-panel.open { right: 0; }
+
+        .panel-header { padding: 18px 20px; border-bottom: 1px solid #30363d; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .panel-header-text { flex: 1; min-width: 0; }
+        .panel-type-label { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+        .panel-conflict-nodes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .panel-node-chip {
+            background: rgba(255,123,114,0.12); color: #ff7b72; border: 1px solid rgba(255,123,114,0.3);
+            padding: 3px 10px; border-radius: 4px; font-size: 0.82rem; font-weight: 500;
+            max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .panel-arrow { color: #8b949e; font-size: 0.9rem; }
+        .panel-close { cursor: pointer; color: #8b949e; font-size: 1.1rem; padding: 2px; flex-shrink: 0; transition: color 0.2s; }
+        .panel-close:hover { color: #c9d1d9; }
+
+        .panel-content { padding: 20px; overflow-y: auto; flex-grow: 1; }
+        .panel-content::-webkit-scrollbar { width: 4px; }
+        .panel-content::-webkit-scrollbar-track { background: transparent; }
+        .panel-content::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+
+        .panel-section-label { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 10px; }
+        .analysis-text { font-size: 0.88rem; line-height: 1.7; color: #c9d1d9; }
+        .analysis-text p { margin: 0 0 12px; }
+        .analysis-text p:last-child { margin-bottom: 0; }
+
+        /* Node info panel */
+        .node-info-label { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 6px; }
+        .node-info-name { font-size: 1rem; font-weight: 600; color: #58a6ff; margin: 0 0 4px; }
+        .node-info-type { font-size: 0.8rem; color: #8b949e; margin: 0 0 16px; }
+        .node-connections { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+        .connection-chip {
+            display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+            background: #0d1117; border-radius: 6px; font-size: 0.8rem;
+        }
+        .conn-rel { color: #8b949e; font-size: 0.7rem; font-family: monospace; flex-shrink: 0; }
+        .conn-node { color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .conn-dir { color: #30363d; flex-shrink: 0; }
+
+        .panel-footer { padding: 16px 20px; border-top: 1px solid #30363d; display: flex; gap: 8px; }
+        .btn-copy {
+            flex: 1; padding: 10px; background-color: #238636; color: white; border: none;
+            border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: background 0.2s;
+        }
+        .btn-copy:hover { background-color: #2ea043; }
+        .btn-copy.copied { background-color: #1f6feb; }
+
+        /* ── Toast ── */
+        #toast {
+            position: absolute; bottom: 20px; right: 20px; z-index: 30;
+            background: #238636; color: white; padding: 10px 18px; border-radius: 6px;
+            font-size: 0.85rem; opacity: 0; transition: opacity 0.3s; pointer-events: none;
+        }
+        #toast.show { opacity: 1; }
+    </style>
+
+    <script src="https://unpkg.com/3d-force-graph@1.73.1"></script>
+</head>
+<body>
+
+    <div id="upload-overlay">
+        <div id="drop-zone">
+            <div class="upload-icon">&#128196;</div>
+            <h2>Ingest Strategy Document</h2>
+            <p class="normal-hint">Drag &amp; Drop a PDF here, or click to browse.</p>
+            <p class="drag-hint" style="color:#58a6ff;">Drop to begin ingestion</p>
+            <input type="file" id="file-input" accept="application/pdf" style="display: none;">
+        </div>
+
+        <div id="telemetry-console">
+            <div class="spinner"></div>
+            <h2 id="telemetry-status">Uploading Document...</h2>
+            <p id="telemetry-elapsed" style="color: #8b949e;"></p>
+            <button id="btn-retry" onclick="showOverlay()">&#8635; Start Over</button>
+        </div>
+
+        <div id="stored-docs" style="display:none;">
+            <h3>Previously Analysed</h3>
+            <div id="doc-list"></div>
+        </div>
+    </div>
+
+    <div id="toolbar">
+        <button class="toolbar-btn" onclick="showOverlay()">&#128196; Documents</button>
+        <div id="toolbar-divider"></div>
+        <span id="active-doc-label"></span>
+        <span id="friction-badge" style="display:none;"></span>
+    </div>
+
+    <div id="stats-hud">
+        <div class="stat-item">
+            <span class="stat-value" id="stat-nodes">—</span>
+            <span class="stat-label">Nodes</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+            <span class="stat-value" id="stat-edges">—</span>
+            <span class="stat-label">Edges</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+            <span class="stat-value friction" id="stat-friction">—</span>
+            <span class="stat-label">Conflicts</span>
+        </div>
+    </div>
+
+    <div id="graph-container"></div>
+
+    <div id="side-panel">
+        <div class="panel-header">
+            <div class="panel-header-text">
+                <div class="panel-type-label" id="panel-type-label">Structural Friction</div>
+                <div class="panel-conflict-nodes" id="panel-conflict-nodes"></div>
+            </div>
+            <span class="panel-close" onclick="closePanel()" title="Close (Esc)">&#x2716;</span>
+        </div>
+        <div class="panel-content" id="panel-details"></div>
+        <div class="panel-footer" id="panel-footer"></div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+        // ── State ──
+        let activeFriction = null;
+        let activeDocumentId = null;
+        let frictionNodeIds = new Set();
+        let graphLinks = [];
+        let elapsedTimer = null;
+        let pollTimeout = null;
+
+        // ── Element refs ──
+        const dropZone    = document.getElementById('drop-zone');
+        const fileInput   = document.getElementById('file-input');
+        const overlay     = document.getElementById('upload-overlay');
+        const telemetry   = document.getElementById('telemetry-console');
+        const statusEl    = document.getElementById('telemetry-status');
+        const elapsedEl   = document.getElementById('telemetry-elapsed');
+        const retryBtn    = document.getElementById('btn-retry');
+
+        // ── 1. Document list ──
+        function escHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function truncateFilename(name, maxLen = 40) {
+            if (name.length <= maxLen) return name;
+            const dot = name.lastIndexOf('.');
+            const ext = dot > 0 ? name.slice(dot) : '';
+            const base = dot > 0 ? name.slice(0, dot) : name;
+            const allowed = maxLen - ext.length - 1;
+            return base.slice(0, allowed) + '\u2026' + ext;
+        }
+
+        async function loadStoredDocs() {
+            try {
+                const res  = await fetch('/api/v1/documents');
+                const data = await res.json();
+                const container = document.getElementById('stored-docs');
+                const list      = document.getElementById('doc-list');
+                list.innerHTML  = '';
+                if (!data.documents?.length) { container.style.display = 'none'; return; }
+                container.style.display = 'block';
+                data.documents.forEach(doc => {
+                    const date  = new Date(doc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                    const entry = document.createElement('div');
+                    entry.className = 'doc-entry' + (doc.id === activeDocumentId ? ' active' : '');
+                    const truncated = truncateFilename(doc.name);
+
+                    function renderDefault() {
+                        entry.innerHTML = `
+                            <div class="doc-info">
+                                <span class="doc-name">${escHtml(doc.name)}</span>
+                                <span class="doc-meta">${date}</span>
+                            </div>
+                            <button class="doc-delete-btn" title="Delete document" aria-label="Delete ${escHtml(doc.name)}">&#128465;</button>
+                        `;
+                        entry.querySelector('.doc-info').addEventListener('click', () => {
+                            overlay.style.display = 'none';
+                            loadCanvasData(doc.id, doc.name);
+                        });
+                        entry.querySelector('.doc-delete-btn').addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            renderConfirm();
+                        });
+                    }
+
+                    function renderConfirm() {
+                        entry.innerHTML = `
+                            <div class="doc-confirm">
+                                <span class="doc-confirm-text">Permanently delete &ldquo;${escHtml(truncated)}&rdquo;?</span>
+                                <button class="doc-confirm-cancel">Cancel</button>
+                                <button class="doc-confirm-delete">Delete</button>
+                            </div>
+                        `;
+                        entry.querySelector('.doc-confirm-cancel').addEventListener('click', renderDefault);
+                        entry.querySelector('.doc-confirm-delete').addEventListener('click', async () => {
+                            entry.querySelector('.doc-confirm-delete').disabled = true;
+                            try {
+                                const res = await fetch(`/api/v1/documents/${doc.id}`, { method: 'DELETE' });
+                                if (res.status === 200) {
+                                    entry.style.transition = 'opacity 0.3s';
+                                    entry.style.opacity = '0';
+                                    setTimeout(() => entry.remove(), 300);
+                                    if (doc.id === activeDocumentId) {
+                                        activeDocumentId = null;
+                                        Graph.graphData({ nodes: [], links: [] });
+                                        document.getElementById('toolbar').style.display = 'none';
+                                        document.getElementById('stats-hud').style.display = 'none';
+                                        showOverlay();
+                                    }
+                                } else if (res.status === 409) {
+                                    renderDefault();
+                                    showToast('Cannot delete \u2014 ingestion still in progress.');
+                                } else {
+                                    renderDefault();
+                                    showToast('Deletion failed. Please try again.');
+                                }
+                            } catch {
+                                renderDefault();
+                                showToast('Deletion failed. Please try again.');
+                            }
+                        });
+                    }
+
+                    renderDefault();
+                    list.appendChild(entry);
+                });
+            } catch(e) { /* server not yet ready */ }
+        }
+
+        function showOverlay() {
+            closePanel();
+            dropZone.style.display = 'block';
+            telemetry.style.display = 'none';
+            retryBtn.style.display  = 'none';
+            overlay.style.display   = 'flex';
+            loadStoredDocs();
+        }
+
+        loadStoredDocs();
+
+        // ── 2. Upload & polling ──
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', e => { if (e.target.files.length) uploadFile(e.target.files[0]); });
+        dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+        });
+
+        async function uploadFile(file) {
+            dropZone.style.display  = 'none';
+            telemetry.style.display = 'block';
+            statusEl.style.color    = '';
+            statusEl.textContent    = `Uploading ${file.name}…`;
+            retryBtn.style.display  = 'none';
+            startElapsedTimer();
+
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res  = await fetch('/api/v1/ingest', { method: 'POST', body: formData });
+                const data = await res.json();
+                pollJobStatus(data.job_id, data.document_id, file.name);
+            } catch {
+                stopElapsedTimer();
+                statusEl.textContent = 'Upload failed — could not reach the server.';
+                statusEl.style.color = '#ff7b72';
+                retryBtn.style.display = 'inline-block';
+            }
+        }
+
+        function startElapsedTimer() {
+            const start = Date.now();
+            stopElapsedTimer();
+            elapsedEl.textContent = '';
+            elapsedTimer = setInterval(() => {
+                const s = Math.floor((Date.now() - start) / 1000);
+                elapsedEl.textContent = `${s}s elapsed`;
+            }, 1000);
+        }
+
+        function stopElapsedTimer() {
+            if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+        }
+
+        async function pollJobStatus(jobId, documentId, documentName) {
+            statusEl.textContent = 'Extracting topology…';
+            let phase = 0;
+            const phases = ['Extracting topology…', 'Building knowledge graph…', 'Hunting contradictions…'];
+
+            // Rotate status messages so it feels alive
+            const phaseTimer = setInterval(() => {
+                phase = (phase + 1) % phases.length;
+                statusEl.textContent = phases[phase];
+            }, 4000);
+
+            // Hard timeout after 10 minutes
+            pollTimeout = setTimeout(() => {
+                clearInterval(phaseTimer);
+                clearInterval(pollInterval);
+                stopElapsedTimer();
+                statusEl.textContent = 'Processing is taking unusually long. The server may have stalled.';
+                statusEl.style.color = '#ff7b72';
+                retryBtn.style.display = 'inline-block';
+            }, 10 * 60 * 1000);
+
+            const pollInterval = setInterval(async () => {
+                try {
+                    const res     = await fetch(`/api/v1/status/${jobId}`);
+                    const jobData = await res.json();
+                    if (jobData.status === 'completed') {
+                        clearInterval(pollInterval); clearInterval(phaseTimer);
+                        clearTimeout(pollTimeout); stopElapsedTimer();
+                        overlay.style.display = 'none';
+                        loadCanvasData(documentId, documentName);
+                    } else if (jobData.status === 'failed') {
+                        clearInterval(pollInterval); clearInterval(phaseTimer);
+                        clearTimeout(pollTimeout); stopElapsedTimer();
+                        statusEl.textContent   = `Engine failure: ${jobData.error}`;
+                        statusEl.style.color   = '#ff7b72';
+                        retryBtn.style.display = 'inline-block';
+                    }
+                } catch { /* transient network blip, keep polling */ }
+            }, 1000);
+        }
+
+        // ── 3. WebGL Graph ──
+        const Graph = ForceGraph3D()
+            (document.getElementById('graph-container'))
+            .backgroundColor('#0d1117')
+            .nodeColor(node => frictionNodeIds.has(node.id) ? '#f0883e' : '#58a6ff')
+            .nodeLabel(node => `<span style="background:#161b22;padding:4px 8px;border-radius:4px;font-size:12px;">${node.name}</span>`)
+            .linkWidth(link => link.isFriction ? 2.5 : 0.4)
+            .linkColor(link => link.isFriction ? '#ff7b72' : '#21262d')
+            .onNodeClick(node => openNodePanel(node))
+            .onLinkClick(link => { if (link.isFriction) openFrictionPanel(link); });
+
+        // ── 4. Load canvas data ──
+        async function loadCanvasData(documentId, documentName) {
+            activeDocumentId = documentId;
+            try {
+                const res  = await fetch(`/api/v1/canvas/${documentId}`);
+                const data = await res.json();
+
+                const frictionLines = data.friction_lines || [];
+                graphLinks = data.edges;
+
+                // Build set of node IDs involved in any friction line
+                frictionNodeIds = new Set();
+                frictionLines.forEach(f => {
+                    frictionNodeIds.add(f.source);
+                    frictionNodeIds.add(f.target);
+                });
+
+                const mergedLinks = [
+                    ...data.edges,
+                    ...frictionLines.map(f => ({ ...f, isFriction: true }))
+                ];
+
+                Graph.graphData({ nodes: data.nodes, links: mergedLinks });
+
+                // Toolbar
+                const toolbar = document.getElementById('toolbar');
+                toolbar.style.display = 'flex';
+                document.getElementById('active-doc-label').textContent = documentName || documentId;
+                const badge = document.getElementById('friction-badge');
+                if (frictionLines.length) {
+                    badge.textContent    = `${frictionLines.length} conflict${frictionLines.length !== 1 ? 's' : ''}`;
+                    badge.style.display  = 'inline-block';
+                } else {
+                    badge.style.display  = 'none';
+                }
+
+                // Stats HUD
+                const hud = document.getElementById('stats-hud');
+                hud.style.display = 'flex';
+                document.getElementById('stat-nodes').textContent   = data.nodes.length.toLocaleString();
+                document.getElementById('stat-edges').textContent   = data.edges.length.toLocaleString();
+                document.getElementById('stat-friction').textContent = frictionLines.length.toLocaleString();
+
+            } catch(e) {
+                console.error('Failed to load graph data:', e);
+            }
+        }
+
+        // ── 5. Panel: Friction link ──
+        function openFrictionPanel(linkData) {
+            activeFriction = linkData;
+            const srcName = linkData.source.name || linkData.source.id || linkData.source;
+            const tgtName = linkData.target.name || linkData.target.id || linkData.target;
+
+            document.getElementById('panel-type-label').textContent = 'Structural Friction';
+            document.getElementById('panel-conflict-nodes').innerHTML = `
+                <span class="panel-node-chip" title="${srcName}">${srcName}</span>
+                <span class="panel-arrow">&#8594;</span>
+                <span class="panel-node-chip" title="${tgtName}">${tgtName}</span>
+            `;
+
+            // Format long analysis text into paragraphs
+            const raw = linkData.diamond || 'Logical contradiction detected.';
+            const paragraphs = raw.split(/(?<=\.)\s{2,}|(?<=\.)\n/).filter(s => s.trim());
+            document.getElementById('panel-details').innerHTML = `
+                <p class="panel-section-label">Analysis</p>
+                <div class="analysis-text">${paragraphs.map(p => `<p>${p.trim()}</p>`).join('')}</div>
+            `;
+
+            document.getElementById('panel-footer').innerHTML = `
+                <button class="btn-copy" id="btn-copy-analysis" onclick="copyAnalysis()">Copy Analysis</button>
+            `;
+
+            document.getElementById('side-panel').classList.add('open');
+            if (linkData.source.x !== undefined) {
+                Graph.cameraPosition(
+                    { x: linkData.source.x, y: linkData.source.y, z: linkData.source.z + 180 },
+                    linkData.source, 1500
+                );
+            }
+        }
+
+        // ── 6. Panel: Node click ──
+        function openNodePanel(node) {
+            activeFriction = null;
+            const isFrictionNode = frictionNodeIds.has(node.id);
+
+            document.getElementById('panel-type-label').textContent = isFrictionNode ? 'Friction Node' : 'Node';
+            document.getElementById('panel-conflict-nodes').innerHTML = `
+                <span class="panel-node-chip" style="${isFrictionNode ? '' : 'color:#58a6ff;border-color:rgba(88,166,255,0.3);background:rgba(88,166,255,0.1);'}" title="${node.name}">${node.name}</span>
+            `;
+
+            // Find connections for this node from the live graph data
+            const graphData = Graph.graphData();
+            const outgoing  = graphData.links.filter(l => (l.source?.id || l.source) === node.id && !l.isFriction);
+            const incoming  = graphData.links.filter(l => (l.target?.id || l.target) === node.id && !l.isFriction);
+
+            const renderConnections = (links, dir) => links.map(l => {
+                const other = dir === 'out'
+                    ? (l.target?.name || l.target?.id || l.target)
+                    : (l.source?.name || l.source?.id || l.source);
+                const arrow = dir === 'out' ? '&#8594;' : '&#8592;';
+                return `<div class="connection-chip">
+                    <span class="conn-dir">${arrow}</span>
+                    <span class="conn-rel">${l.relationship || ''}</span>
+                    <span class="conn-node" title="${other}">${other}</span>
+                </div>`;
+            }).join('');
+
+            const connHtml = outgoing.length || incoming.length ? `
+                <p class="panel-section-label" style="margin-top:16px;">Connections (${outgoing.length + incoming.length})</p>
+                <div class="node-connections">
+                    ${renderConnections(outgoing, 'out')}
+                    ${renderConnections(incoming, 'in')}
+                </div>
+            ` : `<p style="color:#8b949e;font-size:0.85rem;margin-top:12px;">No direct connections found.</p>`;
+
+            document.getElementById('panel-details').innerHTML = `
+                <p class="node-info-label">Concept</p>
+                <p class="node-info-name">${node.name}</p>
+                <p class="node-info-type">${node.label || ''}</p>
+                ${isFrictionNode ? '<p style="color:#f0883e;font-size:0.82rem;background:rgba(240,136,62,0.1);padding:8px 10px;border-radius:6px;border-left:3px solid #f0883e;">This node is involved in a structural conflict. Click the red link to see details.</p>' : ''}
+                ${connHtml}
+            `;
+            document.getElementById('panel-footer').innerHTML = '';
+            document.getElementById('side-panel').classList.add('open');
+        }
+
+        function closePanel() {
+            document.getElementById('side-panel').classList.remove('open');
+            activeFriction = null;
+        }
+
+        // ── 7. Copy analysis ──
+        async function copyAnalysis() {
+            if (!activeFriction) return;
+            const text = activeFriction.diamond || '';
+            await navigator.clipboard.writeText(text);
+            const btn = document.getElementById('btn-copy-analysis');
+            btn.textContent = '&#10003; Copied';
+            btn.classList.add('copied');
+            showToast('Analysis copied to clipboard');
+            setTimeout(() => { btn.textContent = 'Copy Analysis'; btn.classList.remove('copied'); }, 2000);
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2500);
+        }
+
+        // ── 8. Keyboard shortcuts ──
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closePanel();
+        });
+    </script>
+</body>
+</html>
