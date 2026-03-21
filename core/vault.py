@@ -290,3 +290,58 @@ class HybridVault:
             d["provenance_ids"] = json.loads(d["provenance_ids"])
             result.append(d)
         return result
+
+    def get_hub_nodes(self, document_id: str, min_dependents: int = 3) -> List[Dict]:
+        """
+        Returns nodes that are the target of >= min_dependents REQUIRES edges
+        within the given document. Each result includes the list of dependent node IDs.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT n.id, n.name, COUNT(e.id) AS dependency_count
+            FROM nodes n
+            JOIN edges e ON n.id = e.target_id
+            WHERE e.relationship = 'REQUIRES' AND e.document_id = ?
+            GROUP BY n.id
+            HAVING dependency_count >= ?
+            ORDER BY dependency_count DESC
+        """, (document_id, min_dependents))
+        hubs = [dict(row) for row in cursor.fetchall()]
+
+        for hub in hubs:
+            cursor.execute("""
+                SELECT source_id FROM edges
+                WHERE target_id = ? AND relationship = 'REQUIRES' AND document_id = ?
+            """, (hub["id"], document_id))
+            hub["dependent_node_ids"] = [row["source_id"] for row in cursor.fetchall()]
+
+        return hubs
+
+    def get_node_source_chunk(self, node_id: str, document_id: str):
+        """
+        Returns the source_chunk_id from any REQUIRES edge that targets this node
+        within the given document. Returns None if no such edge exists.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT source_chunk_id FROM edges
+            WHERE target_id = ? AND document_id = ? AND relationship = 'REQUIRES'
+            LIMIT 1
+        """, (node_id, document_id))
+        row = cursor.fetchone()
+        return row["source_chunk_id"] if row else None
+
+    def get_fragility_lines(self, document_id: str) -> List[Dict]:
+        """Retrieves persisted fragility results for a document."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, hub_node_id, insight, cascade_nodes
+            FROM fragility_lines WHERE document_id = ?
+        """, (document_id,))
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            d["cascade_nodes"] = json.loads(d["cascade_nodes"])
+            result.append(d)
+        return result
