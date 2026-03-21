@@ -5,7 +5,9 @@ from typing import List, Dict, Any
 
 # Import our previously written modules
 from core.vault import HybridVault
-from core.agents import DeconstructorAgent, ContradictionHunterAgent
+from core.agents import DeconstructorAgent, ContradictionHunterAgent, FragilityAgent
+
+HUB_MIN_DEPENDENTS = 3
 
 
 class DiamondOrchestrator:
@@ -134,3 +136,52 @@ class DiamondOrchestrator:
         print(f"[*] Contradiction Hunter: {len(verified_diamonds)} genuine conflict(s) confirmed, {spurious_count} spurious patterns discarded.")
         self.vault.upsert_friction_lines(self.document_id, verified_diamonds)
         return verified_diamonds
+
+    def interrogate_fragility(self) -> None:
+        """
+        DLI Pass: Identifies hub nodes and verifies their cascade fragility.
+        """
+        print("[*] DLI: Mapping fragility...")
+
+        CONFIDENCE_THRESHOLD = 0.65
+
+        hub_nodes = self.vault.get_hub_nodes(self.document_id, min_dependents=HUB_MIN_DEPENDENTS)
+        print(f"[*] DLI: Found {len(hub_nodes)} hub node candidate(s). Verifying...")
+
+        verified = []
+        spurious_count = 0
+
+        for i, hub in enumerate(hub_nodes, 1):
+            print(f"    -> Verifying hub {i}/{len(hub_nodes)}: {hub['name']}...")
+
+            # Resolve dependent node IDs to human-readable names.
+            # get_node_names returns only rows that exist in the nodes table;
+            # any stale edge references are silently omitted — this is intentional.
+            dependent_names = list(
+                self.vault.get_node_names(hub["dependent_node_ids"]).values()
+            )
+
+            # Get source text for this hub node via the edges table
+            source_chunk_id = self.vault.get_node_source_chunk(hub["id"], self.document_id)
+            if source_chunk_id is None:
+                print(f"       [skipped — no source chunk found for hub node {hub['id']}]")
+                continue
+
+            chunk_provenance = self.vault.get_chunk_provenance(source_chunk_id)
+            source_text = chunk_provenance.get("text", "")
+
+            result = FragilityAgent.analyse(hub["name"], dependent_names, source_text)
+
+            if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
+                spurious_count += 1
+                print(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
+                continue
+
+            verified.append({
+                "hub_node_id": hub["id"],
+                "insight": result["insight"],
+                "cascade_nodes": result["cascade_nodes"]
+            })
+
+        self.vault.upsert_fragility_lines(self.document_id, verified)
+        print(f"[*] DLI: {len(verified)} fragility point(s) confirmed, {spurious_count} spurious patterns discarded.")
