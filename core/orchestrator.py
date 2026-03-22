@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 
 # Import our previously written modules
 from core.vault import HybridVault
-from core.agents import DeconstructorAgent, ContradictionHunterAgent, FragilityAgent
+from core.agents import DeconstructorAgent, ContradictionHunterAgent, FragilityAgent, ChronosAgent
 
 HUB_MIN_DEPENDENTS = 3
 
@@ -44,9 +44,9 @@ class DiamondOrchestrator:
     def _process_single_chunk(self, chunk: Dict[str, Any]) -> None:
         """
         Act II: The worker function for a single thread.
-        Saves semantic text to ChromaDB, then builds graph topology in SQLite.
+        Saves semantic text, builds graph topology, and extracts temporal metadata.
         """
-        # 1. Store the raw text and geometry in the Vector DB
+        # 1. Store the raw text and geometry in ChromaDB
         self.vault.insert_document_chunk(
             chunk_id=chunk["chunk_id"],
             document_id=self.document_id,
@@ -55,10 +55,9 @@ class DiamondOrchestrator:
             bbox=chunk["bbox"]
         )
 
-        # 2. Force the LLM to deterministically map the text to JSON topology
+        # 2. Structural Pass: extract topology
         topology = DeconstructorAgent.extract_topology(chunk["text"])
 
-        # 3. Save the Nodes and Edges to the Graph DB, permanently linking the source_chunk_id
         if topology.get("nodes") and topology.get("edges"):
             self.vault.insert_graph_topology(
                 nodes=topology["nodes"],
@@ -66,6 +65,30 @@ class DiamondOrchestrator:
                 source_chunk_id=chunk["chunk_id"],
                 document_id=self.document_id
             )
+
+            # 3. Temporal Pass: extract ISO 8601 dates for the nodes just created
+            node_ids = [node["id"] for node in topology["nodes"]]
+            temporal_data = ChronosAgent.extract_time_data(chunk["text"], existing_nodes=node_ids)
+
+            if temporal_data.get("temporal_nodes"):
+                self.vault.insert_temporal_data(temporal_data["temporal_nodes"])
+
+            # Store temporal edges (STARTS_AFTER) in the existing edges table
+            if temporal_data.get("temporal_edges"):
+                temporal_edge_dicts = [
+                    {
+                        "source_id": te["source_id"],
+                        "target_id": te["target_id"],
+                        "relationship": te["relationship"],
+                    }
+                    for te in temporal_data["temporal_edges"]
+                ]
+                self.vault.insert_graph_topology(
+                    nodes=[],
+                    edges=temporal_edge_dicts,
+                    source_chunk_id=chunk["chunk_id"],
+                    document_id=self.document_id
+                )
 
     def run_ingestion_pipeline(self, file_path: str, max_workers: int = 10) -> None:
         """
@@ -186,3 +209,46 @@ class DiamondOrchestrator:
 
         self.vault.upsert_fragility_lines(self.document_id, verified)
         print(f"[*] DLI: {len(verified)} fragility point(s) confirmed, {spurious_count} spurious patterns discarded.")
+
+    def interrogate_time_friction(self) -> List[Dict[str, Any]]:
+        """
+        Act IV: The Timeline Hunt. Queries SQLite for Negative Slack and
+        synthesizes chronological mitigation strategies.
+        """
+        conflicts = self.vault.get_chronological_friction(document_id=self.document_id)
+        print(f"[*] Chronos: Found {len(conflicts)} chronological conflict(s). Synthesizing mitigations...")
+
+        CONFIDENCE_THRESHOLD = 0.65
+        verified_time_diamonds = []
+        spurious_count = 0
+
+        for i, conflict in enumerate(conflicts, 1):
+            print(f"    -> Verifying time conflict {i}/{len(conflicts)}...")
+            prov_chunk = self.vault.get_chunk_provenance(conflict["chunk_bridge"])
+
+            clash_payload = (
+                f"Node '{conflict['successor']}' is scheduled to start on {conflict['succ_start']}. "
+                f"However, it MUST START AFTER Node '{conflict['predecessor']}', "
+                f"which does not end until {conflict['pred_end']}."
+            )
+
+            result = ContradictionHunterAgent.synthesize_mitigation(
+                structural_clash=clash_payload,
+                source_text=prov_chunk.get("text", "No source text found.")
+            )
+
+            if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
+                spurious_count += 1
+                print(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
+                continue
+
+            verified_time_diamonds.append({
+                "type": "chronological",
+                "source": conflict["predecessor"],
+                "target": conflict["successor"],
+                "diamond": result["analysis"],
+                "provenance_ids": [conflict["chunk_bridge"]],
+            })
+
+        print(f"[*] Chronos: {len(verified_time_diamonds)} genuine time conflict(s), {spurious_count} spurious discarded.")
+        return verified_time_diamonds
