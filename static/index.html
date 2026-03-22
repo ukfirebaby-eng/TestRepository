@@ -193,6 +193,35 @@
             font-size: 0.85rem; opacity: 0; transition: opacity 0.3s; pointer-events: none;
         }
         #toast.show { opacity: 1; }
+
+        /* ── Time-Scrubber ── */
+        #timeline-container {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            background-color: rgba(22, 27, 34, 0.85);
+            padding: 15px 30px;
+            border-radius: 12px;
+            border: 1px solid #30363d;
+            z-index: 10;
+            display: none;
+            backdrop-filter: blur(10px);
+        }
+        #timeline-container label {
+            display: flex;
+            justify-content: space-between;
+            color: #8b949e;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        #time-slider {
+            width: 100%;
+            cursor: pointer;
+            accent-color: #58a6ff;
+        }
+        .stat-value.chronological { color: #d29922; }
     </style>
 
     <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
@@ -249,9 +278,23 @@
             <span class="stat-value fragility" id="stat-fragility">—</span>
             <span class="stat-label">Fragility Points</span>
         </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+            <span class="stat-value chronological" id="stat-chronological">—</span>
+            <span class="stat-label">Time Conflicts</span>
+        </div>
     </div>
 
     <div id="graph-container"></div>
+
+    <div id="timeline-container">
+        <label>
+            <span id="timeline-start">Project Start</span>
+            <span id="timeline-current">&#128197; Showing all</span>
+            <span id="timeline-end">Project End</span>
+        </label>
+        <input type="range" id="time-slider" min="1" max="36" value="36" step="1">
+    </div>
 
     <div id="side-panel">
         <div class="panel-header">
@@ -274,6 +317,13 @@
         let frictionNodeIds = new Set();
         let fragilityNodeIds = new Set();
         let activeFragility = null;
+        let chronologicalFrictionNodeIds = new Set();
+        let activeChronological = null;
+        const globalShaderTime = { value: 0 };
+        (function animateShader() {
+            globalShaderTime.value += 0.05;
+            requestAnimationFrame(animateShader);
+        })();
         let graphLinks = [];
         let elapsedTimer = null;
         let pollTimeout = null;
@@ -499,10 +549,17 @@
                 return group;
             })
             .nodeLabel(node => `<span style="background:#161b22;padding:4px 8px;border-radius:4px;font-size:12px;">${node.name}</span>`)
-            .linkWidth(link => link.isFriction ? 2.5 : 0.4)
-            .linkColor(link => link.isFriction ? '#ff7b72' : '#21262d')
+            .linkWidth(link => (link.isFriction || link.isChronologicalFriction) ? 2.5 : 0.4)
+            .linkColor(link => {
+                if (link.isChronologicalFriction) return '#d29922';
+                if (link.isFriction) return '#ff7b72';
+                return '#21262d';
+            })
             .onNodeClick(node => openNodePanel(node))
-            .onLinkClick(link => { if (link.isFriction) openFrictionPanel(link); });
+            .onLinkClick(link => {
+                if (link.isChronologicalFriction) openChronologicalPanel(link);
+                else if (link.isFriction) openFrictionPanel(link);
+            });
 
         // ── 4. Load canvas data ──
         async function loadCanvasData(documentId, documentName) {
@@ -527,12 +584,33 @@
                 window._fragilityLines = fragilityLines;
                 fragilityLines.forEach(f => fragilityNodeIds.add(f.hub_node_id));
 
+                const chronologicalLines = data.chronological_friction_lines || [];
+                chronologicalFrictionNodeIds = new Set();
+                chronologicalLines.forEach(c => {
+                    chronologicalFrictionNodeIds.add(c.source);
+                    chronologicalFrictionNodeIds.add(c.target);
+                });
+
                 const mergedLinks = [
                     ...data.edges,
-                    ...frictionLines.map(f => ({ ...f, isFriction: true }))
+                    ...frictionLines.map(f => ({ ...f, isFriction: true })),
+                    ...chronologicalLines.map(c => ({ ...c, isChronologicalFriction: true }))
                 ];
 
                 Graph.graphData({ nodes: data.nodes, links: mergedLinks });
+
+                // Show time-scrubber and calibrate slider range if any nodes have temporal data
+                const temporalNodes = data.nodes.filter(n => n.start_date);
+                if (temporalNodes.length > 0) {
+                    const epochMonths = temporalNodes.map(n => isoToEpochMonth(n.start_date));
+                    projectEpochMonth = Math.min(...epochMonths);
+                    const maxRelMonth = Math.max(...epochMonths) - projectEpochMonth + 1;
+                    const slider = document.getElementById('time-slider');
+                    slider.min = 0;
+                    slider.max = maxRelMonth;
+                    slider.value = maxRelMonth;  // Show all by default
+                    document.getElementById('timeline-container').style.display = 'block';
+                }
 
                 // Toolbar
                 const toolbar = document.getElementById('toolbar');
@@ -553,6 +631,7 @@
                 document.getElementById('stat-edges').textContent    = data.edges.length.toLocaleString();
                 document.getElementById('stat-friction').textContent  = frictionLines.length.toLocaleString();
                 document.getElementById('stat-fragility').textContent = fragilityLines.length.toLocaleString();
+                document.getElementById('stat-chronological').textContent = chronologicalLines.length.toLocaleString();
 
             } catch(e) {
                 console.error('Failed to load graph data:', e);
@@ -634,6 +713,45 @@
             document.getElementById('side-panel').classList.add('open');
         }
 
+        function openChronologicalPanel(linkData) {
+            activeChronological = linkData;
+            activeFriction = null;
+            activeFragility = null;
+            const srcName = linkData.source.name || linkData.source.id || linkData.source;
+            const tgtName = linkData.target.name || linkData.target.id || linkData.target;
+
+            document.getElementById('panel-type-label').textContent = 'Chronological Friction';
+            document.getElementById('panel-type-label').style.color = '#d29922';
+            document.getElementById('panel-conflict-nodes').innerHTML = `
+                <span class="panel-node-chip" style="color:#d29922;border-color:rgba(210,153,34,0.3);background:rgba(210,153,34,0.1);" title="${srcName}">${srcName}</span>
+                <span class="panel-arrow">&#8594;</span>
+                <span class="panel-node-chip" style="color:#d29922;border-color:rgba(210,153,34,0.3);background:rgba(210,153,34,0.1);" title="${tgtName}">${tgtName}</span>
+            `;
+
+            const raw = linkData.diamond || 'Schedule conflict detected.';
+            const paragraphs = raw.split(/(?<=\.)\s{2,}|(?<=\.)\n/).filter(s => s.trim());
+            document.getElementById('panel-details').innerHTML = `
+                <p class="panel-section-label">Timeline Analysis</p>
+                <div class="analysis-text">${paragraphs.map(p => `<p>${p.trim()}</p>`).join('')}</div>
+            `;
+
+            document.getElementById('panel-footer').innerHTML = `
+                <button class="btn-copy" id="btn-copy-chronological" onclick="copyChronologicalAnalysis()">Copy Analysis</button>
+            `;
+
+            document.getElementById('side-panel').classList.add('open');
+        }
+
+        async function copyChronologicalAnalysis() {
+            if (!activeChronological) return;
+            await navigator.clipboard.writeText(activeChronological.diamond || '');
+            const btn = document.getElementById('btn-copy-chronological');
+            btn.textContent = '&#10003; Copied';
+            btn.classList.add('copied');
+            showToast('Timeline analysis copied to clipboard');
+            setTimeout(() => { btn.textContent = 'Copy Analysis'; btn.classList.remove('copied'); }, 2000);
+        }
+
         // ── 6. Panel: Node click ──
         function openNodePanel(node) {
             activeFriction = null;
@@ -693,8 +811,10 @@
 
         function closePanel() {
             document.getElementById('side-panel').classList.remove('open');
+            document.getElementById('panel-type-label').style.color = '';
             activeFriction = null;
             activeFragility = null;
+            activeChronological = null;
         }
 
         // ── 7. Copy analysis ──
@@ -734,6 +854,34 @@
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') closePanel();
         });
+
+        // ── Time-Scrubber ──
+        // projectEpochMonth is set when canvas data loads; slider value is months relative to it.
+        let projectEpochMonth = 0;
+
+        document.getElementById('time-slider').addEventListener('input', (e) => {
+            const cutoffRelMonth = parseInt(e.target.value);
+            const slider = document.getElementById('time-slider');
+            document.getElementById('timeline-current').textContent =
+                cutoffRelMonth >= parseInt(slider.max)
+                    ? '&#128197; Showing all'
+                    : `&#128197; Month +${cutoffRelMonth}`;
+
+            Graph.nodeVisibility(node => {
+                if (!node.start_date) return true;  // Non-temporal nodes always visible
+                const relMonth = absoluteToRelMonth(node.start_date);
+                return relMonth <= cutoffRelMonth;
+            });
+        });
+
+        function isoToEpochMonth(isoDate) {
+            const d = new Date(isoDate);
+            return d.getFullYear() * 12 + d.getMonth();
+        }
+
+        function absoluteToRelMonth(isoDate) {
+            return isoToEpochMonth(isoDate) - projectEpochMonth;
+        }
     </script>
 </body>
 </html>
