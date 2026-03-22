@@ -320,10 +320,7 @@
         let chronologicalFrictionNodeIds = new Set();
         let activeChronological = null;
         const globalShaderTime = { value: 0 };
-        (function animateShader() {
-            globalShaderTime.value += 0.05;
-            requestAnimationFrame(animateShader);
-        })();
+        // animateShader RAF loop intentionally omitted until a ShaderMaterial reads globalShaderTime
         let graphLinks = [];
         let elapsedTimer = null;
         let pollTimeout = null;
@@ -723,16 +720,16 @@
             document.getElementById('panel-type-label').textContent = 'Chronological Friction';
             document.getElementById('panel-type-label').style.color = '#d29922';
             document.getElementById('panel-conflict-nodes').innerHTML = `
-                <span class="panel-node-chip" style="color:#d29922;border-color:rgba(210,153,34,0.3);background:rgba(210,153,34,0.1);" title="${srcName}">${srcName}</span>
+                <span class="panel-node-chip" style="color:#d29922;border-color:rgba(210,153,34,0.3);background:rgba(210,153,34,0.1);" title="${escHtml(srcName)}">${escHtml(srcName)}</span>
                 <span class="panel-arrow">&#8594;</span>
-                <span class="panel-node-chip" style="color:#d29922;border-color:rgba(210,153,34,0.3);background:rgba(210,153,34,0.1);" title="${tgtName}">${tgtName}</span>
+                <span class="panel-node-chip" style="color:#d29922;border-color:rgba(210,153,34,0.3);background:rgba(210,153,34,0.1);" title="${escHtml(tgtName)}">${escHtml(tgtName)}</span>
             `;
 
             const raw = linkData.diamond || 'Schedule conflict detected.';
             const paragraphs = raw.split(/(?<=\.)\s{2,}|(?<=\.)\n/).filter(s => s.trim());
             document.getElementById('panel-details').innerHTML = `
                 <p class="panel-section-label">Timeline Analysis</p>
-                <div class="analysis-text">${paragraphs.map(p => `<p>${p.trim()}</p>`).join('')}</div>
+                <div class="analysis-text">${paragraphs.map(p => `<p>${escHtml(p.trim())}</p>`).join('')}</div>
             `;
 
             document.getElementById('panel-footer').innerHTML = `
@@ -862,7 +859,7 @@
         document.getElementById('time-slider').addEventListener('input', (e) => {
             const cutoffRelMonth = parseInt(e.target.value);
             const slider = document.getElementById('time-slider');
-            document.getElementById('timeline-current').textContent =
+            document.getElementById('timeline-current').innerHTML =
                 cutoffRelMonth >= parseInt(slider.max)
                     ? '&#128197; Showing all'
                     : `&#128197; Month +${cutoffRelMonth}`;
