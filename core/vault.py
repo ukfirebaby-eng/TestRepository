@@ -387,12 +387,15 @@ class HybridVault:
         cursor = self.conn.cursor()
         try:
             for t_node in temporal_nodes:
+                node_id = t_node.get("node_id")
+                if not node_id:
+                    raise ValueError(f"temporal node record missing node_id: {t_node!r}")
                 cursor.execute("""
                     INSERT OR REPLACE INTO temporal_metadata
                     (node_id, start_date, end_date, duration_days, is_milestone)
                     VALUES (?, ?, ?, ?, ?)
                 """, (
-                    t_node.get("node_id"),
+                    node_id,
                     t_node.get("start_date"),
                     t_node.get("end_date"),
                     t_node.get("duration_days"),
