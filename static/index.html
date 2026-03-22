@@ -643,9 +643,9 @@
 
             document.getElementById('panel-type-label').textContent = 'Structural Friction';
             document.getElementById('panel-conflict-nodes').innerHTML = `
-                <span class="panel-node-chip" title="${srcName}">${srcName}</span>
+                <span class="panel-node-chip" title="${escHtml(srcName)}">${escHtml(srcName)}</span>
                 <span class="panel-arrow">&#8594;</span>
-                <span class="panel-node-chip" title="${tgtName}">${tgtName}</span>
+                <span class="panel-node-chip" title="${escHtml(tgtName)}">${escHtml(tgtName)}</span>
             `;
 
             // Format long analysis text into paragraphs
@@ -653,7 +653,7 @@
             const paragraphs = raw.split(/(?<=\.)\s{2,}|(?<=\.)\n/).filter(s => s.trim());
             document.getElementById('panel-details').innerHTML = `
                 <p class="panel-section-label">Analysis</p>
-                <div class="analysis-text">${paragraphs.map(p => `<p>${p.trim()}</p>`).join('')}</div>
+                <div class="analysis-text">${paragraphs.map(p => `<p>${escHtml(p.trim())}</p>`).join('')}</div>
             `;
 
             document.getElementById('panel-footer').innerHTML = `
