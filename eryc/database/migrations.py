@@ -336,6 +336,88 @@ _MIGRATIONS: List[Tuple[int, str, List[str]]] = [
             """,
         ],
     ),
+    (
+        4,
+        "Temporal Knowledge Graph — nodes, edges, temporal metadata, friction items",
+        [
+            # ----------------------------------------------------------
+            # Graph nodes: tasks, goals, phases, resources
+            # ----------------------------------------------------------
+            """
+            CREATE TABLE IF NOT EXISTS graph_nodes (
+                node_id         TEXT PRIMARY KEY,
+                workspace_id    TEXT NOT NULL REFERENCES workspaces(workspace_id),
+                node_type       TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                description     TEXT,
+                phase           TEXT,
+                document_id     TEXT REFERENCES documents(document_id),
+                chunk_id        TEXT REFERENCES chunks(chunk_id),
+                metadata_json   TEXT NOT NULL DEFAULT '{}',
+                created_at      TEXT NOT NULL
+            )
+            """,
+            # ----------------------------------------------------------
+            # Directed edges: structural dependencies between nodes
+            # ----------------------------------------------------------
+            """
+            CREATE TABLE IF NOT EXISTS graph_edges (
+                edge_id         TEXT PRIMARY KEY,
+                workspace_id    TEXT NOT NULL REFERENCES workspaces(workspace_id),
+                source_node_id  TEXT NOT NULL REFERENCES graph_nodes(node_id),
+                target_node_id  TEXT NOT NULL REFERENCES graph_nodes(node_id),
+                edge_type       TEXT NOT NULL DEFAULT 'depends_on',
+                weight          REAL NOT NULL DEFAULT 1.0,
+                metadata_json   TEXT NOT NULL DEFAULT '{}',
+                created_at      TEXT NOT NULL
+            )
+            """,
+            # ----------------------------------------------------------
+            # Temporal metadata: scheduling data per node
+            # ----------------------------------------------------------
+            """
+            CREATE TABLE IF NOT EXISTS temporal_metadata (
+                node_id         TEXT PRIMARY KEY REFERENCES graph_nodes(node_id),
+                planned_start   TEXT,
+                planned_end     TEXT,
+                actual_start    TEXT,
+                actual_end      TEXT,
+                duration_days   REAL,
+                slack_days      REAL,
+                updated_at      TEXT NOT NULL
+            )
+            """,
+            # ----------------------------------------------------------
+            # Friction items: structural (red) and temporal (yellow) conflicts
+            # ----------------------------------------------------------
+            """
+            CREATE TABLE IF NOT EXISTS friction_items (
+                friction_id     TEXT PRIMARY KEY,
+                workspace_id    TEXT NOT NULL REFERENCES workspaces(workspace_id),
+                friction_type   TEXT NOT NULL,
+                severity        TEXT NOT NULL DEFAULT 'medium',
+                source_node_id  TEXT REFERENCES graph_nodes(node_id),
+                target_node_id  TEXT REFERENCES graph_nodes(node_id),
+                description     TEXT NOT NULL,
+                chunk_id        TEXT REFERENCES chunks(chunk_id),
+                resolved        INTEGER NOT NULL DEFAULT 0,
+                resolved_at     TEXT,
+                created_at      TEXT NOT NULL
+            )
+            """,
+            # Indexes for graph traversal and reporting
+            "CREATE INDEX IF NOT EXISTS idx_graph_nodes_workspace ON graph_nodes(workspace_id)",
+            "CREATE INDEX IF NOT EXISTS idx_graph_nodes_type ON graph_nodes(node_type)",
+            "CREATE INDEX IF NOT EXISTS idx_graph_nodes_phase ON graph_nodes(phase)",
+            "CREATE INDEX IF NOT EXISTS idx_graph_edges_source ON graph_edges(source_node_id)",
+            "CREATE INDEX IF NOT EXISTS idx_graph_edges_target ON graph_edges(target_node_id)",
+            "CREATE INDEX IF NOT EXISTS idx_graph_edges_workspace ON graph_edges(workspace_id)",
+            "CREATE INDEX IF NOT EXISTS idx_friction_workspace ON friction_items(workspace_id)",
+            "CREATE INDEX IF NOT EXISTS idx_friction_type ON friction_items(friction_type)",
+            "CREATE INDEX IF NOT EXISTS idx_friction_severity ON friction_items(severity)",
+            "CREATE INDEX IF NOT EXISTS idx_friction_resolved ON friction_items(resolved)",
+        ],
+    ),
 ]
 
 

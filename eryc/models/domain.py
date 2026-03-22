@@ -260,3 +260,82 @@ class RetrievalDiagnostics(BaseModel):
     fused_count: int = 0
     final_count: int = 0
     rrf_k: int = 60
+
+
+# ---------------------------------------------------------------------------
+# Temporal Knowledge Graph models
+# ---------------------------------------------------------------------------
+
+
+class NodeType(str, Enum):
+    GOAL = "goal"
+    PHASE = "phase"
+    TASK = "task"
+    RESOURCE = "resource"
+
+
+class EdgeType(str, Enum):
+    DEPENDS_ON = "depends_on"
+    CONTRIBUTES_TO = "contributes_to"
+    BLOCKS = "blocks"
+
+
+class FrictionType(str, Enum):
+    STRUCTURAL = "structural"   # Red — logical paradox
+    TEMPORAL = "temporal"       # Yellow — timing conflict
+
+
+class FrictionSeverity(str, Enum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class GraphNode(BaseModel):
+    node_id: str
+    workspace_id: str
+    node_type: NodeType
+    name: str
+    description: Optional[str] = None
+    phase: Optional[str] = None
+    document_id: Optional[str] = None
+    chunk_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class GraphEdge(BaseModel):
+    edge_id: str
+    workspace_id: str
+    source_node_id: str
+    target_node_id: str
+    edge_type: EdgeType = EdgeType.DEPENDS_ON
+    weight: float = 1.0
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class TemporalMetadata(BaseModel):
+    node_id: str
+    planned_start: Optional[datetime] = None
+    planned_end: Optional[datetime] = None
+    actual_start: Optional[datetime] = None
+    actual_end: Optional[datetime] = None
+    duration_days: Optional[float] = None
+    slack_days: Optional[float] = None
+    updated_at: datetime
+
+
+class FrictionItem(BaseModel):
+    friction_id: str
+    workspace_id: str
+    friction_type: FrictionType
+    severity: FrictionSeverity = FrictionSeverity.MEDIUM
+    source_node_id: Optional[str] = None
+    target_node_id: Optional[str] = None
+    description: str
+    chunk_id: Optional[str] = None
+    resolved: bool = False
+    resolved_at: Optional[datetime] = None
+    created_at: datetime

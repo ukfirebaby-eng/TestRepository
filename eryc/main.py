@@ -20,7 +20,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from eryc import __version__
-from eryc.api.routes import documents, entities, feedback, query, runs
+from eryc.api.routes import (
+    documents,
+    entities,
+    feedback,
+    graph,
+    query,
+    reports_operational,
+    reports_strategic,
+    reports_tactical,
+    runs,
+)
 from eryc.config import get_settings
 from eryc.database.connection import open_connection
 from eryc.database.migrations import apply_migrations
@@ -107,6 +117,10 @@ def create_app() -> FastAPI:
     app.include_router(runs.router)
     app.include_router(feedback.router)
     app.include_router(entities.router)
+    app.include_router(graph.router)
+    app.include_router(reports_strategic.router)
+    app.include_router(reports_tactical.router)
+    app.include_router(reports_operational.router)
 
     # Health endpoint (unauthenticated)
     @app.get("/health", response_model=HealthResponse, tags=["system"])
