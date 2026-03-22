@@ -105,6 +105,17 @@ class HybridVault:
         # Fragility Lines Index
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_fragility_lines_document ON fragility_lines(document_id)")
 
+        # Temporal Metadata Table — stores ISO 8601 dates per node
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS temporal_metadata (
+                node_id TEXT PRIMARY KEY,
+                start_date TEXT,
+                end_date TEXT,
+                duration_days INTEGER,
+                is_milestone BOOLEAN
+            )
+        """)
+
         self.conn.commit()
 
     def insert_document_chunk(self, chunk_id: str, document_id: str, text: str, page: int, bbox: Tuple[float, float, float, float]) -> None:
@@ -365,3 +376,56 @@ class HybridVault:
                 json.dumps(r["cascade_nodes"])
             ))
         self.conn.commit()
+
+    def insert_temporal_data(self, temporal_nodes: List[Dict[str, Any]]) -> None:
+        """
+        Inserts calculated ISO 8601 dates into the temporal_metadata table.
+        Uses INSERT OR REPLACE so a later, more specific date overwrites a fuzzy estimate.
+        """
+        if not temporal_nodes:
+            return
+        cursor = self.conn.cursor()
+        try:
+            for t_node in temporal_nodes:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO temporal_metadata
+                    (node_id, start_date, end_date, duration_days, is_milestone)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    t_node.get("node_id"),
+                    t_node.get("start_date"),
+                    t_node.get("end_date"),
+                    t_node.get("duration_days"),
+                    t_node.get("is_milestone"),
+                ))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            print(f"[!] Temporal Insertion Failed: {e}")
+            raise
+
+    def get_chronological_friction(self, document_id: str = "") -> List[Dict[str, Any]]:
+        """
+        Detects Negative Slack: where Node B STARTS_AFTER Node A but B's start_date
+        is before A's end_date. Uses pure SQLite date string comparison (ISO 8601 sorts lexicographically).
+        Scoped to a document when document_id is provided.
+        """
+        cursor = self.conn.cursor()
+        base_query = """
+            SELECT
+                e.source_id AS predecessor,
+                e.target_id AS successor,
+                e.source_chunk_id AS chunk_bridge,
+                t1.end_date AS pred_end,
+                t2.start_date AS succ_start
+            FROM edges e
+            JOIN temporal_metadata t1 ON e.source_id = t1.node_id
+            JOIN temporal_metadata t2 ON e.target_id = t2.node_id
+            WHERE e.relationship = 'STARTS_AFTER'
+              AND t2.start_date < t1.end_date
+        """
+        if document_id:
+            cursor.execute(base_query + " AND e.document_id = ?", (document_id,))
+        else:
+            cursor.execute(base_query)
+        return [dict(row) for row in cursor.fetchall()]
