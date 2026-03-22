@@ -37,16 +37,17 @@ def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id
     try:
         JOB_STORE[job_id]["status"] = "processing"
 
-        # Initialize and run the Orchestrator
         orchestrator = DiamondOrchestrator(tenant_id=tenant_id, document_id=document_id, document_name=document_name)
         orchestrator.run_ingestion_pipeline(file_path=file_path)
 
-        # Once ingestion is done, immediately hunt for contradictions
         friction_lines = orchestrator.interrogate_friction()
         orchestrator.interrogate_fragility()
+        time_friction_lines = orchestrator.interrogate_time_friction()
 
-        # Store friction lines keyed by document_id for the canvas endpoint
-        DOCUMENT_STORE[document_id] = friction_lines
+        DOCUMENT_STORE[document_id] = {
+            "friction_lines": friction_lines,
+            "chronological_friction_lines": time_friction_lines,
+        }
 
         JOB_STORE[job_id]["status"] = "completed"
         JOB_STORE[job_id]["friction_lines"] = friction_lines
@@ -157,15 +158,39 @@ async def get_canvas_data(document_id: str):
         """, (document_id,))
         edges = [dict(row) for row in cursor.fetchall()]
 
-        friction_lines = vault.get_friction_lines(document_id) or DOCUMENT_STORE.get(document_id, [])
+        # Retrieve temporal node metadata scoped to this document's nodes only
+        cursor.execute("""
+            SELECT tm.node_id, tm.start_date, tm.end_date
+            FROM temporal_metadata tm
+            WHERE tm.node_id IN (
+                SELECT source_id FROM edges WHERE document_id = ?
+                UNION
+                SELECT target_id FROM edges WHERE document_id = ?
+            )
+        """, (document_id, document_id))
+        temporal_by_node = {row["node_id"]: dict(row) for row in cursor.fetchall()}
+
+        # Enrich nodes with temporal metadata
+        enriched_nodes = []
+        for node in nodes:
+            t = temporal_by_node.get(node["id"], {})
+            enriched_nodes.append({**node, **t})
+
+        # Retrieve persisted or in-memory chronological friction
+        doc_store = DOCUMENT_STORE.get(document_id, {})
+        chronological_friction_lines = doc_store.get("chronological_friction_lines", [])
+        friction_lines_from_store = doc_store.get("friction_lines", [])
+
+        friction_lines = vault.get_friction_lines(document_id) or friction_lines_from_store
         fragility_lines = vault.get_fragility_lines(document_id)
 
         return {
             "document_id": document_id,
-            "nodes": nodes,
+            "nodes": enriched_nodes,
             "edges": edges,
             "friction_lines": friction_lines,
-            "fragility_lines": fragility_lines
+            "fragility_lines": fragility_lines,
+            "chronological_friction_lines": chronological_friction_lines,
         }
     except HTTPException:
         raise
