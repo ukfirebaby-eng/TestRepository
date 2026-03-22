@@ -108,3 +108,17 @@ class TestGetChronologicalFriction:
         _seed_nodes_and_edges(vault)
         conflicts = vault.get_chronological_friction(document_id="doc_t1")
         assert conflicts == []
+
+
+class TestChronologicalFrictionLines:
+    def test_upsert_and_get_round_trip(self, vault):
+        vault.insert_document("doc_test", "test.pdf")
+        vault.upsert_chronological_friction_lines("doc_test", [{
+            "source": "node_a",
+            "target": "node_b",
+            "diamond": "Conflict text.",
+            "provenance_ids": ["chunk_1"]
+        }])
+        result = vault.get_chronological_friction_lines("doc_test")
+        assert len(result) == 1
+        assert result[0]["source"] == "node_a"

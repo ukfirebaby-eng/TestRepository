@@ -223,7 +223,9 @@ OUTPUT FORMAT: Valid JSON only matching this schema:
             "relationship": "STARTS_AFTER"
         }}
     ]
-}}"""
+}}
+
+For STARTS_AFTER: source_id is the predecessor (the task that must finish first); target_id is the successor (the task constrained to start after the predecessor ends)."""
 
     @staticmethod
     def extract_time_data(text_chunk: str, existing_nodes: List[str]) -> Dict[str, Any]:

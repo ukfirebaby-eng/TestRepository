@@ -290,6 +290,8 @@ class HybridVault:
             cursor.execute("DELETE FROM friction_lines WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM fragility_lines WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM chronological_friction_lines WHERE document_id = ?", (document_id,))
+            # Note: deletes temporal data for ALL nodes appearing in this document's edges.
+            # If a node is shared across documents, its temporal data will be wiped.
             cursor.execute("""
                 DELETE FROM temporal_metadata
                 WHERE node_id IN (

@@ -637,6 +637,7 @@
 
         // ── 5. Panel: Friction link ──
         function openFrictionPanel(linkData) {
+            document.getElementById('panel-type-label').style.color = '';
             activeFriction = linkData;
             const srcName = linkData.source.name || linkData.source.id || linkData.source;
             const tgtName = linkData.target.name || linkData.target.id || linkData.target;
@@ -671,6 +672,7 @@
 
         // ── 5b. Panel: Hub node (fragility) ──
         function openFragilityPanel(fragData, node) {
+            document.getElementById('panel-type-label').style.color = '';
             activeFragility = fragData;
             activeFriction = null;
 
@@ -800,6 +802,7 @@
                 <p class="node-info-name">${node.name}</p>
                 <p class="node-info-type">${node.label || ''}</p>
                 ${isFrictionNode ? '<p style="color:#f0883e;font-size:0.82rem;background:rgba(240,136,62,0.1);padding:8px 10px;border-radius:6px;border-left:3px solid #f0883e;">This node is involved in a structural conflict. Click the red link to see details.</p>' : ''}
+                ${chronologicalFrictionNodeIds.has(node.id) ? '<p style="color:#d29922;font-size:0.82rem;background:rgba(210,153,34,0.1);padding:8px 10px;border-radius:6px;border-left:3px solid #d29922;">Involved in timeline conflict</p>' : ''}
                 ${connHtml}
             `;
             document.getElementById('panel-footer').innerHTML = '';
