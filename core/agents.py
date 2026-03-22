@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime
 from openai import OpenAI
 from typing import Dict, Any, List
 
@@ -183,3 +184,73 @@ THE SOURCE TEXT:
         except Exception as e:
             print(f"[!] Fragility Agent Failed: {e}")
             return {"is_genuine": False, "confidence": 0.0, "cascade_nodes": [], "insight": "Error during analysis."}
+
+
+class ChronosAgent:
+    """
+    The Temporal Normalization Engine.
+    Reads raw text, anchors relative time to the current date,
+    and outputs ISO 8601 date data for existing nodes only.
+    """
+
+    @staticmethod
+    def get_system_prompt(anchor_date: str) -> str:
+        return f"""You are a deterministic Temporal Data Extraction Engine.
+Your ONLY purpose is to read unstructured text, identify time-based constraints, and map them to strict JSON.
+
+CRITICAL DIRECTIVES:
+1. The absolute baseline date for this document is {anchor_date}.
+2. Convert all relative terms ("next quarter", "in six months") into absolute ISO 8601 dates (YYYY-MM-DD) based on the baseline.
+3. If a duration is mentioned (e.g., "a 4-week sprint"), calculate duration_days.
+4. Identify if the node is a point-in-time (is_milestone: true) or a span (is_milestone: false).
+
+OUTPUT FORMAT: Valid JSON only matching this schema:
+{{
+    "temporal_nodes": [
+        {{
+            "node_id": "exact_string_from_deconstructor",
+            "start_date": "YYYY-MM-DD",
+            "end_date": "YYYY-MM-DD",
+            "duration_days": integer,
+            "is_milestone": boolean
+        }}
+    ],
+    "temporal_edges": [
+        {{
+            "source_id": "unique_string",
+            "target_id": "unique_string",
+            "relationship": "STARTS_AFTER"
+        }}
+    ]
+}}"""
+
+    @staticmethod
+    def extract_time_data(text_chunk: str, existing_nodes: list) -> dict:
+        """
+        Sends text to the LLM and forces ISO 8601 date extraction.
+        Only assigns dates to the provided existing node IDs.
+        Returns empty structure on failure.
+        """
+        current_anchor = datetime.now().strftime("%Y-%m-%d")
+
+        context_payload = f"""Extract temporal data for the following text.
+ONLY assign dates to these existing Node IDs: {existing_nodes}
+
+RAW TEXT:
+{text_chunk}"""
+
+        try:
+            response = _get_client().chat.completions.create(
+                model="gpt-4o-mini",
+                response_format={"type": "json_object"},
+                temperature=0.0,
+                messages=[
+                    {"role": "system", "content": ChronosAgent.get_system_prompt(current_anchor)},
+                    {"role": "user", "content": context_payload}
+                ]
+            )
+            return json.loads(response.choices[0].message.content)
+
+        except Exception as e:
+            print(f"[!] Chronos Agent Failed: {e}")
+            return {"temporal_nodes": [], "temporal_edges": []}
