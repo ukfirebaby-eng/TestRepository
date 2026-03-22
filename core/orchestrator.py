@@ -255,4 +255,5 @@ class DiamondOrchestrator:
             })
 
         print(f"[*] Chronos: {len(verified_time_diamonds)} genuine time conflict(s), {spurious_count} spurious discarded.")
+        self.vault.upsert_chronological_friction_lines(self.document_id, verified_time_diamonds)
         return verified_time_diamonds

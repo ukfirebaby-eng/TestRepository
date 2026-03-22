@@ -4,7 +4,6 @@ import shutil
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
 from typing import Dict, Any, List
 
 # Import our previously written core logic
@@ -28,8 +27,8 @@ vault = HybridVault(tenant_id="local_user_01")
 JOB_STORE: Dict[str, Dict[str, Any]] = {}
 
 # --- In-Memory Document Store ---
-# Maps document_id -> friction_lines so the canvas endpoint can serve them.
-DOCUMENT_STORE: Dict[str, List[Dict[str, Any]]] = {}
+# Maps document_id -> {"friction_lines": [...], "chronological_friction_lines": [...]}
+DOCUMENT_STORE: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
 
 
 def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id: str, document_name: str):
@@ -178,7 +177,10 @@ async def get_canvas_data(document_id: str):
 
         # Retrieve persisted or in-memory chronological friction
         doc_store = DOCUMENT_STORE.get(document_id, {})
-        chronological_friction_lines = doc_store.get("chronological_friction_lines", [])
+        chronological_friction_lines = (
+            vault.get_chronological_friction_lines(document_id)
+            or doc_store.get("chronological_friction_lines", [])
+        )
         friction_lines_from_store = doc_store.get("friction_lines", [])
 
         friction_lines = vault.get_friction_lines(document_id) or friction_lines_from_store

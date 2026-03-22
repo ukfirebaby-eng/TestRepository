@@ -105,6 +105,19 @@ class HybridVault:
         # Fragility Lines Index
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_fragility_lines_document ON fragility_lines(document_id)")
 
+        # Chronological Friction Lines Table — persists time-conflict diamonds
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chronological_friction_lines (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                source_node_id TEXT NOT NULL,
+                target_node_id TEXT NOT NULL,
+                diamond TEXT NOT NULL,
+                provenance_ids TEXT NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chron_friction_document ON chronological_friction_lines(document_id)")
+
         # Temporal Metadata Table — stores ISO 8601 dates per node
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS temporal_metadata (
@@ -276,6 +289,7 @@ class HybridVault:
             cursor = self.conn.cursor()
             cursor.execute("DELETE FROM friction_lines WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM fragility_lines WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM chronological_friction_lines WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM edges WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM documents WHERE id = ?", (document_id,))
 
@@ -432,3 +446,37 @@ class HybridVault:
         else:
             cursor.execute(base_query)
         return [dict(row) for row in cursor.fetchall()]
+
+    def upsert_chronological_friction_lines(self, document_id: str, lines: List[Dict[str, Any]]) -> None:
+        """Persists chronological friction lines to SQLite, replacing any existing rows."""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM chronological_friction_lines WHERE document_id = ?", (document_id,))
+        for i, line in enumerate(lines):
+            cursor.execute("""
+                INSERT INTO chronological_friction_lines
+                (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                f"{document_id}_cf_{i}",
+                document_id,
+                line["source"],
+                line["target"],
+                line["diamond"],
+                json.dumps(line.get("provenance_ids", [])),
+            ))
+        self.conn.commit()
+
+    def get_chronological_friction_lines(self, document_id: str) -> List[Dict[str, Any]]:
+        """Retrieves persisted chronological friction lines for a document."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT source_node_id AS source, target_node_id AS target, diamond, provenance_ids
+            FROM chronological_friction_lines WHERE document_id = ?
+        """, (document_id,))
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            d["provenance_ids"] = json.loads(d["provenance_ids"])
+            result.append(d)
+        return result
