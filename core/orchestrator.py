@@ -226,9 +226,13 @@ class DiamondOrchestrator:
             print(f"    -> Verifying time conflict {i}/{len(conflicts)}...")
             prov_chunk = self.vault.get_chunk_provenance(conflict["chunk_bridge"])
 
+            names = self.vault.get_node_names([conflict["predecessor"], conflict["successor"]])
+            pred_name = names.get(conflict["predecessor"], conflict["predecessor"])
+            succ_name = names.get(conflict["successor"], conflict["successor"])
+
             clash_payload = (
-                f"Node '{conflict['successor']}' is scheduled to start on {conflict['succ_start']}. "
-                f"However, it MUST START AFTER Node '{conflict['predecessor']}', "
+                f"Node '{succ_name}' is scheduled to start on {conflict['succ_start']}. "
+                f"However, it MUST START AFTER Node '{pred_name}', "
                 f"which does not end until {conflict['pred_end']}."
             )
 
