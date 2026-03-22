@@ -195,6 +195,7 @@ class ChronosAgent:
 
     @staticmethod
     def get_system_prompt(anchor_date: str) -> str:
+        """Returns the system prompt with anchor_date injected as the temporal baseline."""
         return f"""You are a deterministic Temporal Data Extraction Engine.
 Your ONLY purpose is to read unstructured text, identify time-based constraints, and map them to strict JSON.
 
@@ -225,7 +226,7 @@ OUTPUT FORMAT: Valid JSON only matching this schema:
 }}"""
 
     @staticmethod
-    def extract_time_data(text_chunk: str, existing_nodes: list) -> dict:
+    def extract_time_data(text_chunk: str, existing_nodes: List[str]) -> Dict[str, Any]:
         """
         Sends text to the LLM and forces ISO 8601 date extraction.
         Only assigns dates to the provided existing node IDs.
