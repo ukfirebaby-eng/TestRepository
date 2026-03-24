@@ -170,6 +170,10 @@ async def get_bottlenecks(document_id: str):
 
 @app.get("/api/v1/reports/schedule-collapse/{document_id}")
 async def get_schedule_collapse(document_id: str):
+    """
+    Returns chronological friction lines ranked by days of negative slack.
+    Excludes rows where either node lacks temporal metadata.
+    """
     cursor = vault.conn.cursor()
     cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
     if cursor.fetchone() is None:
@@ -179,6 +183,10 @@ async def get_schedule_collapse(document_id: str):
 
 @app.get("/api/v1/reports/risk-matrix/{document_id}")
 async def get_risk_matrix(document_id: str):
+    """
+    Returns all friction items (structural + chronological) with severity
+    and probability scores, suitable for rendering a 5x5 risk matrix.
+    """
     cursor = vault.conn.cursor()
     cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
     if cursor.fetchone() is None:
