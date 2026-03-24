@@ -36,7 +36,7 @@ def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id
     try:
         JOB_STORE[job_id]["status"] = "processing"
 
-        orchestrator = DiamondOrchestrator(tenant_id=tenant_id, document_id=document_id, document_name=document_name)
+        orchestrator = DiamondOrchestrator(tenant_id=tenant_id, document_id=document_id, document_name=document_name, vault=vault)
         orchestrator.run_ingestion_pipeline(file_path=file_path)
 
         friction_lines = orchestrator.interrogate_friction()
@@ -128,6 +128,44 @@ async def delete_document_endpoint(document_id: str):
         return {"status": "deleted", "document_id": document_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/reports/friction-queue/{document_id}")
+async def get_friction_queue(document_id: str):
+    """
+    Delivers the ITDO Operational Dashboard.
+    Returns all structural and chronological friction lines for a document,
+    tagged with their type. Uses persisted vault data — works after server restart.
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    structural = [
+        {**line, "type": "structural"}
+        for line in vault.get_friction_lines(document_id)
+    ]
+    chronological = [
+        {**line, "type": "chronological"}
+        for line in vault.get_chronological_friction_lines(document_id)
+    ]
+    return {"friction_queue": structural + chronological}
+
+
+@app.get("/api/v1/reports/bottlenecks/{document_id}")
+async def get_bottlenecks(document_id: str):
+    """
+    Delivers the Hub & Spoke Tactical Dashboard.
+    Returns the top 5 nodes by in-degree centrality (REQUIRES + STARTS_AFTER).
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    vulnerabilities = vault.get_hub_vulnerabilities(document_id, limit=5)
+    return {"bottlenecks": vulnerabilities}
 
 
 @app.get("/api/v1/canvas/{document_id}")
