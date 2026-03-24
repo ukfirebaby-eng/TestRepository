@@ -252,7 +252,10 @@
         .dashboard-grid::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
 
         .report-card { padding: 16px 20px; border-right: 1px solid #30363d; }
-        .report-card:last-child { border-right: none; }
+        /* Right column (cards 2 & 4) — no right border */
+        .report-card:nth-child(even) { border-right: none; }
+        /* First row (cards 1 & 2) — bottom border separator */
+        .report-card:nth-child(-n+2) { border-bottom: 1px solid #30363d; }
         .report-card h3 { margin: 0 0 4px; font-size: 0.85rem; color: #c9d1d9; font-weight: 600; }
         .report-card .subtitle { margin: 0 0 12px; font-size: 0.75rem; color: #8b949e; }
 
@@ -278,6 +281,35 @@
         }
         #friction-list li.chronological .friction-type { color: #d29922; }
         #friction-list li .friction-snippet { color: #c9d1d9; }
+
+        /* ── Schedule Collapse card ── */
+        #schedule-collapse-list { list-style: none; margin: 0; padding: 0; }
+        #schedule-collapse-list li {
+            cursor: pointer; border-left: 3px solid #d29922; margin-bottom: 8px;
+            padding: 8px 10px; background: #0d1117; border-radius: 0 4px 4px 0;
+            font-size: 0.8rem; line-height: 1.4; transition: background 0.15s;
+        }
+        #schedule-collapse-list li:hover { background: #1c2128; }
+        .schedule-overlap-days { color: #d29922; font-weight: 700; font-size: 0.88rem; margin-bottom: 2px; }
+        .schedule-nodes { color: #c9d1d9; }
+        .schedule-arrow { color: #8b949e; margin: 0 4px; }
+        .schedule-dates { color: #8b949e; font-size: 0.72rem; margin-top: 2px; }
+
+        /* ── Risk Matrix card ── */
+        .risk-matrix-wrap { display: flex; flex-direction: column; gap: 4px; }
+        .risk-matrix-grid {
+            display: grid; grid-template-columns: repeat(5, 1fr);
+            grid-template-rows: repeat(5, 1fr); gap: 3px;
+            width: 100%; min-height: 180px;
+        }
+        .risk-cell {
+            border-radius: 3px; display: flex; align-items: center; justify-content: center;
+            font-size: 0.8rem; font-weight: 600; color: #c9d1d9; cursor: default;
+            transition: filter 0.15s; min-height: 28px;
+        }
+        .risk-cell.has-items { cursor: pointer; }
+        .risk-cell.has-items:hover { filter: brightness(1.4); }
+        .risk-matrix-label { color: #8b949e; font-size: 0.7rem; }
 
         #report-btn { display: none; }
     </style>
@@ -390,6 +422,19 @@
                 <h3>Friction Resolution Queue</h3>
                 <p class="subtitle">Click any item to fly to it in the knowledge graph.</p>
                 <ul id="friction-list"></ul>
+            </div>
+            <div class="report-card" id="schedule-collapse-card">
+                <h3>&#128197; Schedule Collapse Forecast</h3>
+                <p class="subtitle">Temporal conflicts ranked by days of negative slack.</p>
+                <ul id="schedule-collapse-list"></ul>
+            </div>
+            <div class="report-card" id="risk-matrix-card">
+                <h3>&#9888; Dynamic Risk Matrix</h3>
+                <p class="subtitle">Severity (&#8594;) &times; Probability (&#8593;). Click a cell to inspect.</p>
+                <div class="risk-matrix-wrap">
+                    <div class="risk-matrix-grid" id="risk-matrix-grid"></div>
+                    <div class="risk-matrix-label">&#8592; Low severity &nbsp;&nbsp; High severity &#8594;</div>
+                </div>
             </div>
         </div>
     </div>
@@ -948,9 +993,8 @@
             document.getElementById('reporting-dashboard').classList.toggle('open', dashboardOpen);
         }
 
-        async function loadReportingDashboard(documentId) {
+        async function _loadBottlenecks(documentId) {
             try {
-                // ── Bottlenecks ──
                 const bottleneckRes = await fetch(`/api/v1/reports/bottlenecks/${documentId}`);
                 if (!bottleneckRes.ok) throw new Error(`Bottlenecks fetch failed: ${bottleneckRes.status}`);
                 const bottleneckData = await bottleneckRes.json();
@@ -968,8 +1012,13 @@
                         tbody.appendChild(tr);
                     });
                 }
+            } catch (err) {
+                console.error('Failed to load bottlenecks:', err);
+            }
+        }
 
-                // ── Friction Queue ──
+        async function _loadFrictionQueue(documentId) {
+            try {
                 const queueRes = await fetch(`/api/v1/reports/friction-queue/${documentId}`);
                 if (!queueRes.ok) throw new Error(`Friction queue fetch failed: ${queueRes.status}`);
                 const queueData = await queueRes.json();
@@ -1005,7 +1054,99 @@
                     });
                 }
             } catch (err) {
-                console.error('Failed to load reporting dashboard:', err);
+                console.error('Failed to load friction queue:', err);
+            }
+        }
+
+        async function loadReportingDashboard(documentId) {
+            await Promise.allSettled([
+                _loadBottlenecks(documentId),
+                _loadFrictionQueue(documentId),
+                loadScheduleCollapse(documentId),
+                loadRiskMatrix(documentId),
+            ]);
+        }
+
+        async function loadScheduleCollapse(documentId) {
+            const res = await fetch(`/api/v1/reports/schedule-collapse/${documentId}`);
+            if (!res.ok) throw new Error(`Schedule collapse fetch failed: ${res.status}`);
+            const data = await res.json();
+            const list = document.getElementById('schedule-collapse-list');
+            list.innerHTML = '';
+            if (!data.schedule_collapse.length) {
+                list.innerHTML = '<li style="border-left-color:#30363d;cursor:default;"><span style="color:#8b949e;">No schedule conflicts detected.</span></li>';
+                return;
+            }
+            data.schedule_collapse.forEach(item => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <div class="schedule-overlap-days">-${escHtml(String(item.days_at_risk))} days</div>
+                    <div class="schedule-nodes">
+                        <span>${escHtml(item.predecessor_name)}</span>
+                        <span class="schedule-arrow">&#8594;</span>
+                        <span>${escHtml(item.successor_name)}</span>
+                    </div>
+                    <div class="schedule-dates">${escHtml(item.pred_end_date)} &#8594; ${escHtml(item.succ_start_date)}</div>
+                `;
+                li.addEventListener('click', () => {
+                    const graphData = Graph.graphData();
+                    const match = graphData.links.find(l =>
+                        l.diamond === item.analysis && l.isChronologicalFriction
+                    );
+                    if (match) openChronologicalPanel(match);
+                });
+                list.appendChild(li);
+            });
+        }
+
+        async function loadRiskMatrix(documentId) {
+            const res = await fetch(`/api/v1/reports/risk-matrix/${documentId}`);
+            if (!res.ok) throw new Error(`Risk matrix fetch failed: ${res.status}`);
+            const data = await res.json();
+            const items = data.risk_matrix;
+
+            // Build cell map: "sev_prob" -> [items]
+            const cellMap = {};
+            items.forEach(item => {
+                const key = `${item.severity}_${item.probability}`;
+                if (!cellMap[key]) cellMap[key] = [];
+                cellMap[key].push(item);
+            });
+
+            const grid = document.getElementById('risk-matrix-grid');
+            grid.innerHTML = '';
+            for (let p = 5; p >= 1; p--) {
+                for (let s = 1; s <= 5; s++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'risk-cell';
+                    const score = s * p;
+                    cell.style.background = score >= 16
+                        ? 'rgba(255,123,114,0.25)'
+                        : score >= 8 ? 'rgba(210,153,34,0.2)' : 'rgba(88,166,255,0.08)';
+                    cell.style.border = `1px solid ${
+                        score >= 16 ? 'rgba(255,123,114,0.4)'
+                        : score >= 8 ? 'rgba(210,153,34,0.3)' : 'rgba(88,166,255,0.15)'}`;
+                    const cellItems = cellMap[`${s}_${p}`] || [];
+                    if (cellItems.length) {
+                        cell.classList.add('has-items');
+                        cell.textContent = cellItems.length;
+                        cell.title = `${cellItems.length} item${cellItems.length > 1 ? 's' : ''} — click to view`;
+                        cell.addEventListener('click', () => {
+                            const first = cellItems[0];
+                            const graphData = Graph.graphData();
+                            const match = graphData.links.find(l =>
+                                (l.source?.id || l.source) === first.source &&
+                                (l.target?.id || l.target) === first.target &&
+                                l.diamond === first.analysis
+                            );
+                            if (match) {
+                                if (first.type === 'chronological') openChronologicalPanel(match);
+                                else openFrictionPanel(match);
+                            }
+                        });
+                    }
+                    grid.appendChild(cell);
+                }
             }
         }
 
