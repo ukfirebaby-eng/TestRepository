@@ -1,18 +1,18 @@
 # --- Web Server & API ---
-fastapi==0.109.2
-uvicorn[standard]==0.27.1
-pydantic==2.6.1
-python-multipart==0.0.9
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
 
 # --- Local Vector Database (Semantic Memory) ---
-chromadb==0.4.22
-numpy<2.0
+chromadb
+numpy
 
 # --- PDF Parsing & Geometric Extraction ---
-PyMuPDF==1.23.21  # This is the 'fitz' library we used for bounding boxes
+PyMuPDF>=1.24.0
 
 # --- AI & LLM Integration ---
-openai==1.12.0
-httpx<0.28.0
+openai
+httpx
 
 # Note: SQLite3 is part of the Python Standard Library, so it does not need to be pip installed.

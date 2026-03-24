@@ -20,5 +20,4 @@ if __name__ == "__main__":
     print("[*] Spatial Canvas UI will be available at: http://localhost:8000\n")
 
     # Run the FastAPI app defined in api.py
-    # reload=True allows you to edit code and see changes without restarting the server
-    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=False)
