@@ -674,21 +674,17 @@
         const Graph = ForceGraph3D()
             (document.getElementById('graph-container'))
             .backgroundColor('#0d1117')
-            .nodeVal(node => fragilityNodeIds.has(node.id) ? 6 : 4)
+            .nodeVal(node => fragilityNodeIds.has(node.id) ? 20 : 8)
             .nodeColor(node => fragilityNodeIds.has(node.id) ? '#f5c542' : (frictionNodeIds.has(node.id) ? '#f0883e' : '#4d9ef7'))
+            .nodeOpacity(0.9)
+            .nodeThreeObjectExtend(true)
             .nodeThreeObject(node => {
                 if (!fragilityNodeIds.has(node.id)) return null;
-                const group = new THREE.Group();
-                const core = new THREE.Mesh(
-                    new THREE.SphereGeometry(5, 16, 16),
-                    new THREE.MeshBasicMaterial({ color: '#f5c542' })
-                );
                 const halo = new THREE.Mesh(
-                    new THREE.SphereGeometry(8, 16, 16),
-                    new THREE.MeshBasicMaterial({ color: '#f5c542', transparent: true, opacity: 0.2, side: THREE.BackSide })
+                    new THREE.SphereGeometry(14, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: '#f5c542', transparent: true, opacity: 0.15, depthWrite: false })
                 );
-                group.add(core, halo);
-                return group;
+                return halo;
             })
             .nodeLabel(node => `<span style="background:#161b22;padding:4px 8px;border-radius:4px;font-size:12px;">${node.name}</span>`)
             .linkWidth(link => (link.isFriction || link.isChronologicalFriction) ? 2.5 : 0.4)
@@ -733,13 +729,48 @@
                     chronologicalFrictionNodeIds.add(c.target);
                 });
 
+                const nodeIdSet = new Set(data.nodes.map(n => n.id));
                 const mergedLinks = [
                     ...data.edges,
                     ...frictionLines.map(f => ({ ...f, isFriction: true })),
                     ...chronologicalLines.map(c => ({ ...c, isChronologicalFriction: true }))
-                ];
+                ].filter(l => nodeIdSet.has(l.source) && nodeIdSet.has(l.target));
+
+                // Tune forces BEFORE loading graph data so the simulation's first tick
+                // already uses the correct parameters. warmupTicks with wrong defaults
+                // was collapsing nodes before repulsion was configured.
+                try {
+                    // Scale repulsion strongly with link count to overcome link attraction
+                    const linkCount = mergedLinks.length;
+                    const chargeStrength = -Math.max(500, linkCount * 5);
+                    Graph.d3Force('charge').strength(chargeStrength);
+                    Graph.d3Force('link').distance(80);
+                } catch (e) {
+                    console.warn('[Graph] d3Force tuning failed:', e);
+                }
+
+                // Pre-seed positions in a fixed r=200 sphere so nodes are immediately visible
+                data.nodes.forEach(node => {
+                    if (node.x === undefined) {
+                        const theta = Math.random() * Math.PI * 2;
+                        const phi   = Math.acos(2 * Math.random() - 1);
+                        const r     = Math.cbrt(Math.random()) * 200;
+                        node.x = r * Math.sin(phi) * Math.cos(theta);
+                        node.y = r * Math.sin(phi) * Math.sin(theta);
+                        node.z = r * Math.cos(phi);
+                    }
+                });
 
                 Graph.graphData({ nodes: data.nodes, links: mergedLinks });
+
+                // Fixed camera distance — r=200 sphere is comfortably visible at z=600
+                Graph.cameraPosition({ x: 0, y: 0, z: 600 });
+
+                // Clear any nodeVisibility filter left over from a previous document's time-scrubber
+                Graph.nodeVisibility(() => true);
+
+                // Refit camera once the force simulation has fully converged
+                Graph.onEngineStop(() => Graph.zoomToFit(400, 10));
 
                 // Show time-scrubber and calibrate slider range if any nodes have temporal data
                 const temporalNodes = data.nodes.filter(n => n.start_date);

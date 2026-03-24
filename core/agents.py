@@ -5,8 +5,41 @@ from openai import OpenAI
 from typing import Dict, Any, List
 
 def _get_client() -> OpenAI:
-    """Lazy client instantiation so import doesn't fail if OPENAI_API_KEY is not yet set."""
+    """Returns an OpenAI-compatible client for the configured provider.
+
+    Environment variables:
+        LLM_PROVIDER          "openai" (default) or "openrouter"
+        OPENAI_API_KEY        Required when LLM_PROVIDER=openai
+        OPENROUTER_API_KEY    Required when LLM_PROVIDER=openrouter
+    """
+    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+    if provider == "openrouter":
+        return OpenAI(
+            api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+            base_url="https://openrouter.ai/api/v1",
+        )
     return OpenAI()
+
+
+def _get_model(tier: str) -> str:
+    """Returns the model name for the active provider and tier.
+
+    Tiers:
+        "fast"   — cheap, deterministic JSON extraction (DeconstructorAgent, ChronosAgent)
+        "smart"  — higher-reasoning analysis (ContradictionHunterAgent, FragilityAgent)
+
+    Override with environment variables:
+        FAST_MODEL    e.g. "openai/gpt-4o-mini"  or "gpt-4o-mini"
+        SMART_MODEL   e.g. "openai/gpt-4o"        or "anthropic/claude-3-5-sonnet"
+    """
+    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+    defaults = {
+        "openai":     {"fast": "gpt-4o-mini",       "smart": "gpt-4o"},
+        "openrouter": {"fast": "openai/gpt-4o-mini", "smart": "openai/gpt-4o"},
+    }
+    default = defaults.get(provider, defaults["openai"])[tier]
+    env_key = "FAST_MODEL" if tier == "fast" else "SMART_MODEL"
+    return os.environ.get(env_key, default)
 
 
 class DeconstructorAgent:
@@ -37,7 +70,7 @@ class DeconstructorAgent:
         """
         try:
             response = _get_client().chat.completions.create(
-                model="gpt-4o-mini",  # Fast, cheap, and reliable for deterministic JSON extraction
+                model=_get_model("fast"),  # Fast, cheap, and reliable for deterministic JSON extraction
                 response_format={"type": "json_object"},
                 temperature=0.0,  # CRITICAL: 0.0 makes the AI deterministic. No creative deviations allowed.
                 messages=[
@@ -109,7 +142,7 @@ class ContradictionHunterAgent:
 
         try:
             response = _get_client().chat.completions.create(
-                model="gpt-4o",
+                model=_get_model("smart"),
                 temperature=0.1,
                 response_format={"type": "json_object"},
                 messages=[
@@ -175,7 +208,7 @@ THE SOURCE TEXT:
 """
         try:
             response = _get_client().chat.completions.create(
-                model="gpt-4o",
+                model=_get_model("smart"),
                 temperature=0.1,
                 response_format={"type": "json_object"},
                 messages=[
@@ -248,7 +281,7 @@ RAW TEXT:
 
         try:
             response = _get_client().chat.completions.create(
-                model="gpt-4o-mini",
+                model=_get_model("fast"),
                 response_format={"type": "json_object"},
                 temperature=0.0,
                 messages=[

@@ -63,7 +63,8 @@
       "Bash(python -m pytest tests/test_vault_reporting.py tests/test_agents.py -v)",
       "Bash(python -m pytest tests/ -v --ignore=tests/test_api_delete.py -q)",
       "Bash(python -m pytest tests/test_vault_reporting.py tests/test_agents.py tests/test_api_reporting.py -q)",
-      "Bash(ls \"c:\\\\Users\\\\windo\\\\Downloads\\\\Diamond Miner\\\\vaults\\\\local_user_01\"\" 2>/dev/null || echo \"Directory not found \")"
+      "Bash(ls \"c:\\\\Users\\\\windo\\\\Downloads\\\\Diamond Miner\\\\vaults\\\\local_user_01\"\" 2>/dev/null || echo \"Directory not found \")",
+      "Bash(python make_nexus_pdf.py)"
     ]
   }
 }
