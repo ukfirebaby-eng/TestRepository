@@ -1,6 +1,7 @@
 import os
 import json
 import sqlite3
+import threading
 import chromadb
 from datetime import datetime, timezone
 from typing import List, Dict, Tuple, Any, Optional
@@ -22,6 +23,9 @@ class HybridVault:
         self.sqlite_path = os.path.join(self.vault_path, "graph.sqlite")
         self.conn = sqlite3.connect(self.sqlite_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row  # Returns dict-like rows instead of tuples
+
+        # Threading lock — serialises all SQLite writes during parallel ingestion
+        self._write_lock = threading.Lock()
 
         # 2. Initialize ChromaDB (The Semantic Vector Engine)
         self.chroma_client = chromadb.PersistentClient(path=os.path.join(self.vault_path, "chroma"))
@@ -170,29 +174,30 @@ class HybridVault:
         Takes the JSON output from the Deconstructor Agent and safely inserts
         it into SQLite. Wraps the insertion in a transaction to prevent partial writes.
         """
-        cursor = self.conn.cursor()
-        try:
-            # Insert Nodes (IGNORE if they already exist from a previous chunk)
-            for node in nodes:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO nodes (id, label, name)
-                    VALUES (?, ?, ?)
-                """, (node['id'], node['label'], node['name']))
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            try:
+                # Insert Nodes (IGNORE if they already exist from a previous chunk)
+                for node in nodes:
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO nodes (id, label, name)
+                        VALUES (?, ?, ?)
+                    """, (node['id'], node['label'], node['name']))
 
-            # Insert Edges (Attach the ChromaDB bridge ID and document scope to every one)
-            for edge in edges:
-                # Scope the edge ID to this document so re-ingesting doesn't collide
-                edge_id = f"{document_id}_{edge['source_id']}_{edge['relationship']}_{edge['target_id']}"
-                cursor.execute("""
-                    INSERT OR IGNORE INTO edges (id, document_id, source_id, target_id, relationship, source_chunk_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (edge_id, document_id, edge['source_id'], edge['target_id'], edge['relationship'], source_chunk_id))
+                # Insert Edges (Attach the ChromaDB bridge ID and document scope to every one)
+                for edge in edges:
+                    # Scope the edge ID to this document so re-ingesting doesn't collide
+                    edge_id = f"{document_id}_{edge['source_id']}_{edge['relationship']}_{edge['target_id']}"
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO edges (id, document_id, source_id, target_id, relationship, source_chunk_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (edge_id, document_id, edge['source_id'], edge['target_id'], edge['relationship'], source_chunk_id))
 
-            self.conn.commit()
-        except Exception as e:
-            self.conn.rollback()
-            print(f"[!] Graph Insertion Failed for chunk {source_chunk_id}: {e}")
-            raise
+                self.conn.commit()
+            except Exception as e:
+                self.conn.rollback()
+                print(f"[!] Graph Insertion Failed for chunk {source_chunk_id}: {e}")
+                raise
 
     def get_triangular_conflicts(self, document_id: str = "") -> List[Dict[str, Any]]:
         """
@@ -450,28 +455,29 @@ class HybridVault:
         """
         if not temporal_nodes:
             return
-        cursor = self.conn.cursor()
-        try:
-            for t_node in temporal_nodes:
-                node_id = t_node.get("node_id")
-                if not node_id:
-                    raise ValueError(f"temporal node record missing node_id: {t_node!r}")
-                cursor.execute("""
-                    INSERT OR REPLACE INTO temporal_metadata
-                    (node_id, start_date, end_date, duration_days, is_milestone)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (
-                    node_id,
-                    t_node.get("start_date"),
-                    t_node.get("end_date"),
-                    t_node.get("duration_days"),
-                    t_node.get("is_milestone"),
-                ))
-            self.conn.commit()
-        except Exception as e:
-            self.conn.rollback()
-            print(f"[!] Temporal Insertion Failed: {e}")
-            raise
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            try:
+                for t_node in temporal_nodes:
+                    node_id = t_node.get("node_id")
+                    if not node_id:
+                        raise ValueError(f"temporal node record missing node_id: {t_node!r}")
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO temporal_metadata
+                        (node_id, start_date, end_date, duration_days, is_milestone)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        node_id,
+                        t_node.get("start_date"),
+                        t_node.get("end_date"),
+                        t_node.get("duration_days"),
+                        t_node.get("is_milestone"),
+                    ))
+                self.conn.commit()
+            except Exception as e:
+                self.conn.rollback()
+                print(f"[!] Temporal Insertion Failed: {e}")
+                raise
 
     def get_chronological_friction(self, document_id: str = "") -> List[Dict[str, Any]]:
         """
