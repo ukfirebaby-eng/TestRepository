@@ -92,3 +92,192 @@ class TestGetHubVulnerabilities:
         vault.insert_document("doc_empty", "empty.pdf")
         result = vault.get_hub_vulnerabilities("doc_empty")
         assert result == []
+
+
+def _seed_chron_friction_with_dates(vault, document_id="doc_sched"):
+    """Seeds nodes, temporal metadata, and a chronological friction line for schedule tests."""
+    vault.insert_document(document_id, "sched_test.pdf")
+    cursor = vault.conn.cursor()
+    # Insert two nodes
+    cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)",
+                   ("pred_node", "Phase", "Phase 1 Delivery"))
+    cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)",
+                   ("succ_node", "Phase", "Phase 2 Kickoff"))
+    # Temporal metadata: pred ends 2026-04-15, succ starts 2026-04-01 (14 days overlap)
+    cursor.execute("INSERT OR IGNORE INTO temporal_metadata (node_id, start_date, end_date) VALUES (?, ?, ?)",
+                   ("pred_node", "2026-03-01", "2026-04-15"))
+    cursor.execute("INSERT OR IGNORE INTO temporal_metadata (node_id, start_date, end_date) VALUES (?, ?, ?)",
+                   ("succ_node", "2026-04-01", "2026-05-01"))
+    # Chronological friction line
+    cursor.execute("""
+        INSERT OR IGNORE INTO chronological_friction_lines
+        (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (f"{document_id}_cf_0", document_id, "pred_node", "succ_node",
+          "Phase 2 cannot start before Phase 1 finishes.", '[]'))
+    vault.conn.commit()
+
+
+class TestGetScheduleCollapseForecast:
+    def test_returns_empty_list_when_no_chron_lines(self, vault):
+        vault.insert_document("doc_no_cf", "x.pdf")
+        result = vault.get_schedule_collapse_forecast("doc_no_cf")
+        assert result == []
+
+    def test_returns_empty_when_no_temporal_metadata(self, vault):
+        vault.insert_document("doc_no_tm", "x.pdf")
+        cursor = vault.conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)",
+                       ("n1", "C", "Node 1"))
+        cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)",
+                       ("n2", "C", "Node 2"))
+        cursor.execute("""
+            INSERT OR IGNORE INTO chronological_friction_lines
+            (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, ("doc_no_tm_cf_0", "doc_no_tm", "n1", "n2", "conflict", '[]'))
+        vault.conn.commit()
+        result = vault.get_schedule_collapse_forecast("doc_no_tm")
+        assert result == []
+
+    def test_calculates_days_at_risk(self, vault):
+        _seed_chron_friction_with_dates(vault)
+        result = vault.get_schedule_collapse_forecast("doc_sched")
+        assert len(result) == 1
+        assert result[0]["days_at_risk"] == 14
+
+    def test_includes_human_readable_names(self, vault):
+        _seed_chron_friction_with_dates(vault)
+        result = vault.get_schedule_collapse_forecast("doc_sched")
+        assert result[0]["predecessor_name"] == "Phase 1 Delivery"
+        assert result[0]["successor_name"] == "Phase 2 Kickoff"
+
+    def test_includes_dates_and_analysis(self, vault):
+        _seed_chron_friction_with_dates(vault)
+        result = vault.get_schedule_collapse_forecast("doc_sched")
+        row = result[0]
+        assert row["pred_end_date"] == "2026-04-15"
+        assert row["succ_start_date"] == "2026-04-01"
+        assert "Phase 2" in row["analysis"]
+
+    def test_ordered_by_days_at_risk_descending(self, vault):
+        _seed_chron_friction_with_dates(vault)
+        # Add a second conflict with smaller overlap (7 days)
+        cursor = vault.conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)",
+                       ("pred2", "Phase", "Phase 3"))
+        cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)",
+                       ("succ2", "Phase", "Phase 4"))
+        cursor.execute("INSERT OR IGNORE INTO temporal_metadata (node_id, start_date, end_date) VALUES (?, ?, ?)",
+                       ("pred2", "2026-06-01", "2026-07-07"))
+        cursor.execute("INSERT OR IGNORE INTO temporal_metadata (node_id, start_date, end_date) VALUES (?, ?, ?)",
+                       ("succ2", "2026-07-01", "2026-08-01"))
+        cursor.execute("""
+            INSERT OR IGNORE INTO chronological_friction_lines
+            (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, ("doc_sched_cf_1", "doc_sched", "pred2", "succ2", "conflict 2", '[]'))
+        vault.conn.commit()
+        result = vault.get_schedule_collapse_forecast("doc_sched")
+        assert result[0]["days_at_risk"] >= result[1]["days_at_risk"]
+
+    def test_scoped_to_document(self, vault):
+        _seed_chron_friction_with_dates(vault, "doc_sched_a")
+        _seed_chron_friction_with_dates(vault, "doc_sched_b")
+        result = vault.get_schedule_collapse_forecast("doc_sched_a")
+        assert len(result) == 1
+
+
+class TestGetRiskMatrixData:
+    def test_returns_empty_for_no_friction(self, vault):
+        vault.insert_document("doc_rm_empty", "x.pdf")
+        assert vault.get_risk_matrix_data("doc_rm_empty") == []
+
+    def test_structural_items_tagged_correctly(self, vault):
+        vault.insert_document("doc_rm_s", "x.pdf")
+        cursor = vault.conn.cursor()
+        cursor.execute("""
+            INSERT INTO friction_lines (id, document_id, source_node_id, target_node_id, diamond, provenance_ids, severity, probability)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, ("doc_rm_s_fl_0", "doc_rm_s", "s1", "t1", "conflict", '[]', 4, 3))
+        vault.conn.commit()
+        result = vault.get_risk_matrix_data("doc_rm_s")
+        assert len(result) == 1
+        assert result[0]["type"] == "structural"
+
+    def test_chronological_items_tagged_correctly(self, vault):
+        vault.insert_document("doc_rm_c", "x.pdf")
+        cursor = vault.conn.cursor()
+        cursor.execute("""
+            INSERT INTO chronological_friction_lines (id, document_id, source_node_id, target_node_id, diamond, provenance_ids, severity, probability)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, ("doc_rm_c_cf_0", "doc_rm_c", "s1", "t1", "timeline clash", '[]', 5, 4))
+        vault.conn.commit()
+        result = vault.get_risk_matrix_data("doc_rm_c")
+        assert len(result) == 1
+        assert result[0]["type"] == "chronological"
+
+    def test_coalesce_defaults_to_3_for_null_values(self, vault):
+        vault.insert_document("doc_rm_null", "x.pdf")
+        cursor = vault.conn.cursor()
+        # Insert without specifying severity/probability (rely on DEFAULT 3)
+        cursor.execute("""
+            INSERT INTO friction_lines (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, ("doc_rm_null_fl_0", "doc_rm_null", "s1", "t1", "conflict", '[]'))
+        vault.conn.commit()
+        result = vault.get_risk_matrix_data("doc_rm_null")
+        assert result[0]["severity"] == 3
+        assert result[0]["probability"] == 3
+
+    def test_stored_severity_probability_returned(self, vault):
+        vault.insert_document("doc_rm_scores", "x.pdf")
+        cursor = vault.conn.cursor()
+        cursor.execute("""
+            INSERT INTO friction_lines (id, document_id, source_node_id, target_node_id, diamond, provenance_ids, severity, probability)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, ("doc_rm_scores_fl_0", "doc_rm_scores", "s1", "t1", "conflict", '[]', 5, 2))
+        vault.conn.commit()
+        result = vault.get_risk_matrix_data("doc_rm_scores")
+        assert result[0]["severity"] == 5
+        assert result[0]["probability"] == 2
+
+    def test_scoped_to_document(self, vault):
+        for doc_id in ["doc_rm_x", "doc_rm_y"]:
+            vault.insert_document(doc_id, "x.pdf")
+            cursor = vault.conn.cursor()
+            cursor.execute("""
+                INSERT INTO friction_lines (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (f"{doc_id}_fl_0", doc_id, "s1", "t1", "conflict", '[]'))
+            vault.conn.commit()
+        result = vault.get_risk_matrix_data("doc_rm_x")
+        assert len(result) == 1
+
+
+class TestUpsertFrictionLinesWithScores:
+    def test_severity_probability_round_trip_friction_lines(self, vault):
+        vault.insert_document("doc_score_fl", "x.pdf")
+        items = [{"source": "a", "target": "b", "diamond": "conflict",
+                  "provenance_ids": [], "severity": 4, "probability": 2}]
+        vault.upsert_friction_lines("doc_score_fl", items)
+        result = vault.get_friction_lines("doc_score_fl")
+        assert result[0]["severity"] == 4
+        assert result[0]["probability"] == 2
+
+    def test_severity_probability_round_trip_chron_friction_lines(self, vault):
+        vault.insert_document("doc_score_cf", "x.pdf")
+        items = [{"source": "a", "target": "b", "diamond": "conflict",
+                  "provenance_ids": [], "severity": 5, "probability": 3}]
+        vault.upsert_chronological_friction_lines("doc_score_cf", items)
+        result = vault.get_chronological_friction_lines("doc_score_cf")
+        assert result[0]["severity"] == 5
+        assert result[0]["probability"] == 3
+
+    def test_defaults_to_3_when_scores_not_provided(self, vault):
+        vault.insert_document("doc_score_default", "x.pdf")
+        items = [{"source": "a", "target": "b", "diamond": "conflict", "provenance_ids": []}]
+        vault.upsert_friction_lines("doc_score_default", items)
+        result = vault.get_friction_lines("doc_score_default")
+        assert result[0]["severity"] == 3
+        assert result[0]["probability"] == 3

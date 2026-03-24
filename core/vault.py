@@ -118,6 +118,20 @@ class HybridVault:
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chron_friction_document ON chronological_friction_lines(document_id)")
 
+        # Phase 2: add severity/probability scoring columns to friction tables
+        for col, table in [
+            ("severity",    "friction_lines"),
+            ("probability", "friction_lines"),
+            ("severity",    "chronological_friction_lines"),
+            ("probability", "chronological_friction_lines"),
+        ]:
+            try:
+                cursor.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 3"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists on subsequent starts
+
         # Temporal Metadata Table — stores ISO 8601 dates per node
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS temporal_metadata (
@@ -266,15 +280,17 @@ class HybridVault:
         cursor.execute("DELETE FROM friction_lines WHERE document_id = ?", (document_id,))
         for i, fl in enumerate(friction_lines):
             cursor.execute("""
-                INSERT INTO friction_lines (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO friction_lines (id, document_id, source_node_id, target_node_id, diamond, provenance_ids, severity, probability)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 f"{document_id}_fl_{i}",
                 document_id,
                 fl["source"],
                 fl["target"],
                 fl["diamond"],
-                json.dumps(fl["provenance_ids"])
+                json.dumps(fl["provenance_ids"]),
+                fl.get("severity", 3),
+                fl.get("probability", 3),
             ))
         self.conn.commit()
 
@@ -317,7 +333,8 @@ class HybridVault:
         """Retrieves persisted friction lines for a document."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT source_node_id AS source, target_node_id AS target, diamond, provenance_ids
+            SELECT source_node_id AS source, target_node_id AS target,
+                   diamond, provenance_ids, severity, probability
             FROM friction_lines WHERE document_id = ?
         """, (document_id,))
         rows = cursor.fetchall()
@@ -488,8 +505,8 @@ class HybridVault:
             for i, line in enumerate(lines):
                 cursor.execute("""
                     INSERT INTO chronological_friction_lines
-                    (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (id, document_id, source_node_id, target_node_id, diamond, provenance_ids, severity, probability)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     f"{document_id}_cf_{i}",
                     document_id,
@@ -497,6 +514,8 @@ class HybridVault:
                     line["target"],
                     line["diamond"],
                     json.dumps(line.get("provenance_ids", [])),
+                    line.get("severity", 3),
+                    line.get("probability", 3),
                 ))
             self.conn.commit()
         except Exception as e:
@@ -508,7 +527,8 @@ class HybridVault:
         """Retrieves persisted chronological friction lines for a document."""
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT source_node_id AS source, target_node_id AS target, diamond, provenance_ids
+            SELECT source_node_id AS source, target_node_id AS target,
+                   diamond, provenance_ids, severity, probability
             FROM chronological_friction_lines WHERE document_id = ?
         """, (document_id,))
         rows = cursor.fetchall()
@@ -518,3 +538,59 @@ class HybridVault:
             d["provenance_ids"] = json.loads(d["provenance_ids"])
             result.append(d)
         return result
+
+    def get_schedule_collapse_forecast(self, document_id: str) -> List[Dict[str, Any]]:
+        """
+        Returns chronological friction lines enriched with temporal metadata,
+        ranked by days of negative slack (how far pred_end overruns succ_start).
+        Excludes items where either node lacks temporal data.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT
+                pred_node.name                                           AS predecessor_name,
+                succ_node.name                                           AS successor_name,
+                tm_pred.end_date                                         AS pred_end_date,
+                tm_succ.start_date                                       AS succ_start_date,
+                ROUND(julianday(tm_pred.end_date) - julianday(tm_succ.start_date)) AS days_at_risk,
+                cfl.diamond                                              AS analysis
+            FROM chronological_friction_lines cfl
+            JOIN nodes pred_node ON cfl.source_node_id = pred_node.id
+            JOIN nodes succ_node ON cfl.target_node_id = succ_node.id
+            JOIN temporal_metadata tm_pred ON cfl.source_node_id = tm_pred.node_id
+            JOIN temporal_metadata tm_succ ON cfl.target_node_id = tm_succ.node_id
+            WHERE cfl.document_id = ?
+              AND tm_pred.end_date IS NOT NULL
+              AND tm_succ.start_date IS NOT NULL
+            ORDER BY days_at_risk DESC
+        """, (document_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_risk_matrix_data(self, document_id: str) -> List[Dict[str, Any]]:
+        """
+        Returns all friction items (structural + chronological) with severity and
+        probability scores. COALESCE defaults to 3 for pre-migration rows.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT 'structural'   AS type,
+                   source_node_id AS source,
+                   target_node_id AS target,
+                   diamond        AS analysis,
+                   COALESCE(severity, 3)    AS severity,
+                   COALESCE(probability, 3) AS probability
+            FROM friction_lines
+            WHERE document_id = ?
+
+            UNION ALL
+
+            SELECT 'chronological' AS type,
+                   source_node_id  AS source,
+                   target_node_id  AS target,
+                   diamond         AS analysis,
+                   COALESCE(severity, 3)    AS severity,
+                   COALESCE(probability, 3) AS probability
+            FROM chronological_friction_lines
+            WHERE document_id = ?
+        """, (document_id, document_id))
+        return [dict(row) for row in cursor.fetchall()]
