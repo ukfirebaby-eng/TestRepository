@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 from api import app
 
 
-def _make_mock_vault(doc_exists=True, friction_lines=None, chron_lines=None, bottlenecks=None):
+def _make_mock_vault(doc_exists=True, friction_lines=None, chron_lines=None, bottlenecks=None, schedule_collapse=None, risk_matrix=None):
     mock_vault = MagicMock()
     mock_vault.list_documents.return_value = []
 
@@ -19,6 +19,8 @@ def _make_mock_vault(doc_exists=True, friction_lines=None, chron_lines=None, bot
     mock_vault.get_friction_lines.return_value = friction_lines or []
     mock_vault.get_chronological_friction_lines.return_value = chron_lines or []
     mock_vault.get_hub_vulnerabilities.return_value = bottlenecks or []
+    mock_vault.get_schedule_collapse_forecast.return_value = schedule_collapse if schedule_collapse is not None else []
+    mock_vault.get_risk_matrix_data.return_value = risk_matrix if risk_matrix is not None else []
     return mock_vault
 
 
@@ -111,3 +113,90 @@ class TestBottlenecksEndpoint:
             with TestClient(app) as c:
                 c.get("/api/v1/reports/bottlenecks/doc_abc")
         mock_vault.get_hub_vulnerabilities.assert_called_once_with("doc_abc", limit=5)
+
+
+class TestScheduleCollapseEndpoint:
+    def test_returns_200(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/schedule-collapse/doc_test_01")
+        assert response.status_code == 200
+
+    def test_response_has_schedule_collapse_key(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/schedule-collapse/doc_test_01")
+        assert "schedule_collapse" in response.json()
+
+    def test_items_have_expected_fields(self):
+        item = {
+            "predecessor_name": "Phase A",
+            "successor_name": "Phase B",
+            "pred_end_date": "2026-04-15",
+            "succ_start_date": "2026-04-01",
+            "days_at_risk": 14,
+            "analysis": "Reschedule Phase B."
+        }
+        mock_vault = _make_mock_vault(schedule_collapse=[item])
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/schedule-collapse/doc_test_01")
+        data = response.json()
+        assert data["schedule_collapse"][0]["predecessor_name"] == "Phase A"
+        assert data["schedule_collapse"][0]["days_at_risk"] == 14
+
+    def test_returns_404_for_missing_document(self):
+        mock_vault = _make_mock_vault(doc_exists=False)
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/schedule-collapse/nonexistent")
+        assert response.status_code == 404
+
+    def test_calls_vault_with_document_id(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                c.get("/api/v1/reports/schedule-collapse/doc_test_01")
+        mock_vault.get_schedule_collapse_forecast.assert_called_once_with("doc_test_01")
+
+
+class TestRiskMatrixEndpoint:
+    def test_returns_200(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/risk-matrix/doc_test_01")
+        assert response.status_code == 200
+
+    def test_response_has_risk_matrix_key(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/risk-matrix/doc_test_01")
+        assert "risk_matrix" in response.json()
+
+    def test_items_include_severity_and_probability(self):
+        item = {
+            "type": "structural",
+            "source": "node_a",
+            "target": "node_b",
+            "analysis": "Fix the conflict.",
+            "severity": 4,
+            "probability": 3
+        }
+        mock_vault = _make_mock_vault(risk_matrix=[item])
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/risk-matrix/doc_test_01")
+        data = response.json()
+        assert data["risk_matrix"][0]["severity"] == 4
+        assert data["risk_matrix"][0]["probability"] == 3
+
+    def test_returns_404_for_missing_document(self):
+        mock_vault = _make_mock_vault(doc_exists=False)
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/risk-matrix/nonexistent")
+        assert response.status_code == 404

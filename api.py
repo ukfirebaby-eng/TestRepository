@@ -168,6 +168,24 @@ async def get_bottlenecks(document_id: str):
     return {"bottlenecks": vulnerabilities}
 
 
+@app.get("/api/v1/reports/schedule-collapse/{document_id}")
+async def get_schedule_collapse(document_id: str):
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {"schedule_collapse": vault.get_schedule_collapse_forecast(document_id)}
+
+
+@app.get("/api/v1/reports/risk-matrix/{document_id}")
+async def get_risk_matrix(document_id: str):
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {"risk_matrix": vault.get_risk_matrix_data(document_id)}
+
+
 @app.get("/api/v1/canvas/{document_id}")
 async def get_canvas_data(document_id: str):
     """Returns the unified graph topology for the WebGL renderer."""
