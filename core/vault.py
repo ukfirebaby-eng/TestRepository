@@ -125,6 +125,8 @@ class HybridVault:
             ("severity",    "chronological_friction_lines"),
             ("probability", "chronological_friction_lines"),
         ]:
+            assert table in {"friction_lines", "chronological_friction_lines"}
+            assert col in {"severity", "probability"}
             try:
                 cursor.execute(
                     f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 3"
@@ -562,6 +564,7 @@ class HybridVault:
             WHERE cfl.document_id = ?
               AND tm_pred.end_date IS NOT NULL
               AND tm_succ.start_date IS NOT NULL
+              AND julianday(tm_pred.end_date) > julianday(tm_succ.start_date)
             ORDER BY days_at_risk DESC
         """, (document_id,))
         return [dict(row) for row in cursor.fetchall()]

@@ -183,9 +183,37 @@ class TestGetScheduleCollapseForecast:
 
     def test_scoped_to_document(self, vault):
         _seed_chron_friction_with_dates(vault, "doc_sched_a")
-        _seed_chron_friction_with_dates(vault, "doc_sched_b")
-        result = vault.get_schedule_collapse_forecast("doc_sched_a")
-        assert len(result) == 1
+
+        # Seed doc_sched_b with distinct node IDs so each document has its own
+        # temporal_metadata rows and the isolation boundary is genuinely tested.
+        vault.insert_document("doc_sched_b", "sched_test_b.pdf")
+        cursor = vault.conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)",
+                       ("pred_node_b", "Phase", "Phase B1 Delivery"))
+        cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)",
+                       ("succ_node_b", "Phase", "Phase B2 Kickoff"))
+        cursor.execute("INSERT OR IGNORE INTO temporal_metadata (node_id, start_date, end_date) VALUES (?, ?, ?)",
+                       ("pred_node_b", "2026-05-01", "2026-06-15"))
+        cursor.execute("INSERT OR IGNORE INTO temporal_metadata (node_id, start_date, end_date) VALUES (?, ?, ?)",
+                       ("succ_node_b", "2026-06-01", "2026-07-01"))
+        cursor.execute("""
+            INSERT OR IGNORE INTO chronological_friction_lines
+            (id, document_id, source_node_id, target_node_id, diamond, provenance_ids)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, ("doc_sched_b_cf_0", "doc_sched_b", "pred_node_b", "succ_node_b",
+              "Phase B2 cannot start before Phase B1 finishes.", '[]'))
+        vault.conn.commit()
+
+        result_a = vault.get_schedule_collapse_forecast("doc_sched_a")
+        result_b = vault.get_schedule_collapse_forecast("doc_sched_b")
+
+        # Each document returns exactly its own single conflict row.
+        assert len(result_a) == 1
+        assert len(result_b) == 1
+
+        # Neither result bleeds across the document boundary.
+        assert result_a[0]["predecessor_name"] == "Phase 1 Delivery"
+        assert result_b[0]["predecessor_name"] == "Phase B1 Delivery"
 
 
 class TestGetRiskMatrixData:
