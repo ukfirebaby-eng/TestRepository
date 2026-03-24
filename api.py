@@ -36,7 +36,10 @@ def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id
     try:
         JOB_STORE[job_id]["status"] = "processing"
 
-        orchestrator = DiamondOrchestrator(tenant_id=tenant_id, document_id=document_id, document_name=document_name, vault=vault)
+        def _log(msg: str):
+            JOB_STORE[job_id]["log"].append(msg)
+
+        orchestrator = DiamondOrchestrator(tenant_id=tenant_id, document_id=document_id, document_name=document_name, vault=vault, log_fn=_log)
         orchestrator.run_ingestion_pipeline(file_path=file_path)
 
         friction_lines = orchestrator.interrogate_friction()
@@ -84,7 +87,7 @@ async def ingest_document(background_tasks: BackgroundTasks, file: UploadFile = 
         shutil.copyfileobj(file.file, buffer)
 
     # Register the job
-    JOB_STORE[job_id] = {"status": "pending", "document_id": document_id}
+    JOB_STORE[job_id] = {"status": "pending", "document_id": document_id, "log": []}
 
     # Fire and forget
     background_tasks.add_task(_run_ingestion_task, job_id, file_path, tenant_id, document_id, file.filename)

@@ -39,7 +39,14 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         #telemetry-status { color: #c9d1d9; font-size: 1.1rem; margin: 0 0 8px; }
-        #telemetry-elapsed { color: #8b949e; font-size: 0.85rem; margin: 0 0 20px; }
+        #telemetry-elapsed { color: #8b949e; font-size: 0.85rem; margin: 0 0 12px; }
+        #telemetry-log {
+            text-align: left; font-family: 'Courier New', monospace; font-size: 0.75rem;
+            background: #010409; border: 1px solid #21262d; border-radius: 6px;
+            color: #3fb950; padding: 10px 12px; margin: 0 0 16px;
+            max-height: 180px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+            min-height: 40px;
+        }
         #btn-retry {
             display: none; padding: 8px 20px; background: #161b22; border: 1px solid #ff7b72;
             color: #ff7b72; border-radius: 6px; cursor: pointer; font-size: 0.9rem;
@@ -332,6 +339,7 @@
             <div class="spinner"></div>
             <h2 id="telemetry-status">Uploading Document...</h2>
             <p id="telemetry-elapsed" style="color: #8b949e;"></p>
+            <pre id="telemetry-log"></pre>
             <button id="btn-retry" onclick="showOverlay()">&#8635; Start Over</button>
         </div>
 
@@ -616,6 +624,8 @@
 
         async function pollJobStatus(jobId, documentId, documentName) {
             statusEl.textContent = 'Extracting topology…';
+            const logEl = document.getElementById('telemetry-log');
+            logEl.textContent = '';
             let phase = 0;
             const phases = ['Extracting topology…', 'Building knowledge graph…', 'Hunting contradictions…'];
 
@@ -639,6 +649,10 @@
                 try {
                     const res     = await fetch(`/api/v1/status/${jobId}`);
                     const jobData = await res.json();
+                    if (jobData.log && jobData.log.length) {
+                        logEl.textContent = jobData.log.join('\n');
+                        logEl.scrollTop = logEl.scrollHeight;
+                    }
                     if (jobData.status === 'completed') {
                         clearInterval(pollInterval); clearInterval(phaseTimer);
                         clearTimeout(pollTimeout); stopElapsedTimer();

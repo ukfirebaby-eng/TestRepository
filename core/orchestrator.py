@@ -11,11 +11,18 @@ HUB_MIN_DEPENDENTS = 3
 
 
 class DiamondOrchestrator:
-    def __init__(self, tenant_id: str, document_id: str, document_name: str = "Untitled", vault: HybridVault = None):
+    def __init__(self, tenant_id: str, document_id: str, document_name: str = "Untitled", vault: HybridVault = None, log_fn=None):
         self.tenant_id = tenant_id
         self.document_id = document_id
         self.document_name = document_name
         self.vault = vault if vault is not None else HybridVault(tenant_id=tenant_id)
+        self._log_fn = log_fn
+
+    def _emit(self, msg: str) -> None:
+        """Prints to console and forwards to the optional UI log callback."""
+        print(msg)
+        if self._log_fn:
+            self._log_fn(msg)
 
     def _parse_pdf_with_geometry(self, file_path: str) -> List[Dict[str, Any]]:
         """
@@ -95,9 +102,9 @@ class DiamondOrchestrator:
         The Main Execution Loop. Orchestrates parallel processing and enforces the synchronization barrier.
         """
         self.vault.insert_document(self.document_id, self.document_name)
-        print(f"[*] Orchestrator: Parsing document {self.document_id}...")
+        self._emit(f"[*] Orchestrator: Parsing document {self.document_id}...")
         chunks = self._parse_pdf_with_geometry(file_path)
-        print(f"[*] Orchestrator: Extracted {len(chunks)} geometric chunks. Beginning parallel Deconstruction.")
+        self._emit(f"[*] Orchestrator: Extracted {len(chunks)} geometric chunks. Beginning parallel Deconstruction.")
 
         # Spin up concurrent threads to blast through the document chunk-by-chunk
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -108,11 +115,11 @@ class DiamondOrchestrator:
                 try:
                     future.result()  # This will raise any exceptions caught in the thread
                     if count % 10 == 0:
-                        print(f"    -> Processed {count}/{len(chunks)} chunks...")
+                        self._emit(f"    -> Processed {count}/{len(chunks)} chunks...")
                 except Exception as e:
-                    print(f"[!] Orchestrator Thread Failed: {e}")
+                    self._emit(f"[!] Orchestrator Thread Failed: {e}")
 
-        print("[*] Orchestrator: Ingestion complete. Knowledge Graph is locked and loaded.")
+        self._emit("[*] Orchestrator: Ingestion complete. Knowledge Graph is locked and loaded.")
 
     def interrogate_friction(self) -> List[Dict[str, Any]]:
         """
@@ -120,14 +127,14 @@ class DiamondOrchestrator:
         """
         # Zero-cost structural query
         conflicts = self.vault.get_triangular_conflicts(document_id=self.document_id)
-        print(f"[*] Contradiction Hunter: Found {len(conflicts)} structural conflict(s). Synthesizing mitigations...")
+        self._emit(f"[*] Contradiction Hunter: Found {len(conflicts)} structural conflict(s). Synthesizing mitigations...")
 
         CONFIDENCE_THRESHOLD = 0.65  # Discard weak or spurious conflicts
 
         verified_diamonds = []
         spurious_count = 0
         for i, conflict in enumerate(conflicts, 1):
-            print(f"    -> Verifying conflict {i}/{len(conflicts)}...")
+            self._emit(f"    -> Verifying conflict {i}/{len(conflicts)}...")
             # Cross over to ChromaDB to get the raw text that caused the clash
             prov_requires = self.vault.get_chunk_provenance(conflict["chunk_requires"])
             prov_blocks = self.vault.get_chunk_provenance(conflict["chunk_blocks"])
@@ -146,7 +153,7 @@ class DiamondOrchestrator:
 
             if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
                 spurious_count += 1
-                print(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
+                self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
                 continue
 
             verified_diamonds.append({
@@ -158,7 +165,7 @@ class DiamondOrchestrator:
                 "probability": result.get("probability", 3),
             })
 
-        print(f"[*] Contradiction Hunter: {len(verified_diamonds)} genuine conflict(s) confirmed, {spurious_count} spurious patterns discarded.")
+        self._emit(f"[*] Contradiction Hunter: {len(verified_diamonds)} genuine conflict(s) confirmed, {spurious_count} spurious patterns discarded.")
         self.vault.upsert_friction_lines(self.document_id, verified_diamonds)
         return verified_diamonds
 
@@ -166,18 +173,18 @@ class DiamondOrchestrator:
         """
         DLI Pass: Identifies hub nodes and verifies their cascade fragility.
         """
-        print("[*] DLI: Mapping fragility...")
+        self._emit("[*] DLI: Mapping fragility...")
 
         CONFIDENCE_THRESHOLD = 0.65
 
         hub_nodes = self.vault.get_hub_nodes(self.document_id, min_dependents=HUB_MIN_DEPENDENTS)
-        print(f"[*] DLI: Found {len(hub_nodes)} hub node candidate(s). Verifying...")
+        self._emit(f"[*] DLI: Found {len(hub_nodes)} hub node candidate(s). Verifying...")
 
         verified = []
         spurious_count = 0
 
         for i, hub in enumerate(hub_nodes, 1):
-            print(f"    -> Verifying hub {i}/{len(hub_nodes)}: {hub['name']}...")
+            self._emit(f"    -> Verifying hub {i}/{len(hub_nodes)}: {hub['name']}...")
 
             # Resolve dependent node IDs to human-readable names.
             # get_node_names returns only rows that exist in the nodes table;
@@ -189,7 +196,7 @@ class DiamondOrchestrator:
             # Get source text for this hub node via the edges table
             source_chunk_id = self.vault.get_node_source_chunk(hub["id"], self.document_id)
             if source_chunk_id is None:
-                print(f"       [skipped — no source chunk found for hub node {hub['id']}]")
+                self._emit(f"       [skipped — no source chunk found for hub node {hub['id']}]")
                 continue
 
             chunk_provenance = self.vault.get_chunk_provenance(source_chunk_id)
@@ -199,7 +206,7 @@ class DiamondOrchestrator:
 
             if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
                 spurious_count += 1
-                print(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
+                self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
                 continue
 
             verified.append({
@@ -210,7 +217,7 @@ class DiamondOrchestrator:
             })
 
         self.vault.upsert_fragility_lines(self.document_id, verified)
-        print(f"[*] DLI: {len(verified)} fragility point(s) confirmed, {spurious_count} spurious patterns discarded.")
+        self._emit(f"[*] DLI: {len(verified)} fragility point(s) confirmed, {spurious_count} spurious patterns discarded.")
 
     def interrogate_time_friction(self) -> List[Dict[str, Any]]:
         """
@@ -218,14 +225,14 @@ class DiamondOrchestrator:
         synthesizes chronological mitigation strategies.
         """
         conflicts = self.vault.get_chronological_friction(document_id=self.document_id)
-        print(f"[*] Chronos: Found {len(conflicts)} chronological conflict(s). Synthesizing mitigations...")
+        self._emit(f"[*] Chronos: Found {len(conflicts)} chronological conflict(s). Synthesizing mitigations...")
 
         CONFIDENCE_THRESHOLD = 0.65
         verified_time_diamonds = []
         spurious_count = 0
 
         for i, conflict in enumerate(conflicts, 1):
-            print(f"    -> Verifying time conflict {i}/{len(conflicts)}...")
+            self._emit(f"    -> Verifying time conflict {i}/{len(conflicts)}...")
             prov_chunk = self.vault.get_chunk_provenance(conflict["chunk_bridge"])
 
             names = self.vault.get_node_names([conflict["predecessor"], conflict["successor"]])
@@ -245,7 +252,7 @@ class DiamondOrchestrator:
 
             if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
                 spurious_count += 1
-                print(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
+                self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
                 continue
 
             verified_time_diamonds.append({
@@ -258,6 +265,6 @@ class DiamondOrchestrator:
                 "probability": result.get("probability", 3),
             })
 
-        print(f"[*] Chronos: {len(verified_time_diamonds)} genuine time conflict(s), {spurious_count} spurious discarded.")
+        self._emit(f"[*] Chronos: {len(verified_time_diamonds)} genuine time conflict(s), {spurious_count} spurious discarded.")
         self.vault.upsert_chronological_friction_lines(self.document_id, verified_time_diamonds)
         return verified_time_diamonds
