@@ -85,8 +85,12 @@ class ContradictionHunterAgent:
     {
       "is_genuine": true or false,
       "confidence": a float between 0.0 and 1.0,
-      "analysis": "Your mitigation if genuine, or a one-sentence explanation of why it is spurious."
+      "analysis": "Your mitigation if genuine, or a one-sentence explanation of why it is spurious.",
+      "severity": an integer from 1 (minor nuisance) to 5 (programme-ending failure),
+      "probability": an integer from 1 (highly unlikely to materialise) to 5 (virtually certain)
     }
+
+    Severity and probability must always be present. For spurious conflicts, use 1 for both.
     """
 
     @staticmethod
@@ -118,7 +122,7 @@ class ContradictionHunterAgent:
 
         except Exception as e:
             print(f"[!] Contradiction Hunter Failed: {e}")
-            return {"is_genuine": False, "confidence": 0.0, "analysis": "Error during verification."}
+            return {"is_genuine": False, "confidence": 0.0, "analysis": "Error during verification.", "severity": 1, "probability": 1}
 
 
 class FragilityAgent:
