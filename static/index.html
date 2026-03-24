@@ -1068,85 +1068,93 @@
         }
 
         async function loadScheduleCollapse(documentId) {
-            const res = await fetch(`/api/v1/reports/schedule-collapse/${documentId}`);
-            if (!res.ok) throw new Error(`Schedule collapse fetch failed: ${res.status}`);
-            const data = await res.json();
-            const list = document.getElementById('schedule-collapse-list');
-            list.innerHTML = '';
-            if (!data.schedule_collapse.length) {
-                list.innerHTML = '<li style="border-left-color:#30363d;cursor:default;"><span style="color:#8b949e;">No schedule conflicts detected.</span></li>';
-                return;
-            }
-            data.schedule_collapse.forEach(item => {
-                const li = document.createElement('li');
-                li.innerHTML = `
-                    <div class="schedule-overlap-days">-${escHtml(String(item.days_at_risk))} days</div>
-                    <div class="schedule-nodes">
-                        <span>${escHtml(item.predecessor_name)}</span>
-                        <span class="schedule-arrow">&#8594;</span>
-                        <span>${escHtml(item.successor_name)}</span>
-                    </div>
-                    <div class="schedule-dates">${escHtml(item.pred_end_date)} &#8594; ${escHtml(item.succ_start_date)}</div>
-                `;
-                li.addEventListener('click', () => {
-                    const graphData = Graph.graphData();
-                    const match = graphData.links.find(l =>
-                        l.diamond === item.analysis && l.isChronologicalFriction
-                    );
-                    if (match) openChronologicalPanel(match);
+            try {
+                const res = await fetch(`/api/v1/reports/schedule-collapse/${documentId}`);
+                if (!res.ok) throw new Error(`Schedule collapse fetch failed: ${res.status}`);
+                const data = await res.json();
+                const list = document.getElementById('schedule-collapse-list');
+                list.innerHTML = '';
+                if (!data.schedule_collapse.length) {
+                    list.innerHTML = '<li style="border-left-color:#30363d;cursor:default;"><span style="color:#8b949e;">No schedule conflicts detected.</span></li>';
+                    return;
+                }
+                data.schedule_collapse.forEach(item => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <div class="schedule-overlap-days">-${escHtml(String(item.days_at_risk))} days</div>
+                        <div class="schedule-nodes">
+                            <span>${escHtml(item.predecessor_name)}</span>
+                            <span class="schedule-arrow">&#8594;</span>
+                            <span>${escHtml(item.successor_name)}</span>
+                        </div>
+                        <div class="schedule-dates">${escHtml(item.pred_end_date)} &#8594; ${escHtml(item.succ_start_date)}</div>
+                    `;
+                    li.addEventListener('click', () => {
+                        const graphData = Graph.graphData();
+                        const match = graphData.links.find(l =>
+                            l.diamond === item.analysis && l.isChronologicalFriction
+                        );
+                        if (match) openChronologicalPanel(match);
+                    });
+                    list.appendChild(li);
                 });
-                list.appendChild(li);
-            });
+            } catch (err) {
+                console.error('Failed to load schedule collapse:', err);
+            }
         }
 
         async function loadRiskMatrix(documentId) {
-            const res = await fetch(`/api/v1/reports/risk-matrix/${documentId}`);
-            if (!res.ok) throw new Error(`Risk matrix fetch failed: ${res.status}`);
-            const data = await res.json();
-            const items = data.risk_matrix;
+            try {
+                const res = await fetch(`/api/v1/reports/risk-matrix/${documentId}`);
+                if (!res.ok) throw new Error(`Risk matrix fetch failed: ${res.status}`);
+                const data = await res.json();
+                const items = data.risk_matrix;
 
-            // Build cell map: "sev_prob" -> [items]
-            const cellMap = {};
-            items.forEach(item => {
-                const key = `${item.severity}_${item.probability}`;
-                if (!cellMap[key]) cellMap[key] = [];
-                cellMap[key].push(item);
-            });
+                // Build cell map: "sev_prob" -> [items]
+                const cellMap = {};
+                items.forEach(item => {
+                    const key = `${item.severity}_${item.probability}`;
+                    if (!cellMap[key]) cellMap[key] = [];
+                    cellMap[key].push(item);
+                });
 
-            const grid = document.getElementById('risk-matrix-grid');
-            grid.innerHTML = '';
-            for (let p = 5; p >= 1; p--) {
-                for (let s = 1; s <= 5; s++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'risk-cell';
-                    const score = s * p;
-                    cell.style.background = score >= 16
-                        ? 'rgba(255,123,114,0.25)'
-                        : score >= 8 ? 'rgba(210,153,34,0.2)' : 'rgba(88,166,255,0.08)';
-                    cell.style.border = `1px solid ${
-                        score >= 16 ? 'rgba(255,123,114,0.4)'
-                        : score >= 8 ? 'rgba(210,153,34,0.3)' : 'rgba(88,166,255,0.15)'}`;
-                    const cellItems = cellMap[`${s}_${p}`] || [];
-                    if (cellItems.length) {
-                        cell.classList.add('has-items');
-                        cell.textContent = cellItems.length;
-                        cell.title = `${cellItems.length} item${cellItems.length > 1 ? 's' : ''} — click to view`;
-                        cell.addEventListener('click', () => {
-                            const first = cellItems[0];
-                            const graphData = Graph.graphData();
-                            const match = graphData.links.find(l =>
-                                (l.source?.id || l.source) === first.source &&
-                                (l.target?.id || l.target) === first.target &&
-                                l.diamond === first.analysis
-                            );
-                            if (match) {
-                                if (first.type === 'chronological') openChronologicalPanel(match);
-                                else openFrictionPanel(match);
-                            }
-                        });
+                const grid = document.getElementById('risk-matrix-grid');
+                grid.innerHTML = '';
+                for (let p = 5; p >= 1; p--) {
+                    for (let s = 1; s <= 5; s++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'risk-cell';
+                        const score = s * p;
+                        cell.style.background = score >= 16
+                            ? 'rgba(255,123,114,0.25)'
+                            : score >= 8 ? 'rgba(210,153,34,0.2)' : 'rgba(88,166,255,0.08)';
+                        cell.style.border = `1px solid ${
+                            score >= 16 ? 'rgba(255,123,114,0.4)'
+                            : score >= 8 ? 'rgba(210,153,34,0.3)' : 'rgba(88,166,255,0.15)'}`;
+                        const cellItems = cellMap[`${s}_${p}`] || [];
+                        if (cellItems.length) {
+                            cell.classList.add('has-items');
+                            cell.textContent = cellItems.length;
+                            cell.title = `${cellItems.length} item${cellItems.length > 1 ? 's' : ''} — click to view`;
+                            cell.addEventListener('click', () => {
+                                const first = cellItems[0];
+                                const graphData = Graph.graphData();
+                                const match = graphData.links.find(l =>
+                                    (l.source?.id || l.source) === first.source &&
+                                    (l.target?.id || l.target) === first.target &&
+                                    l.diamond === first.analysis
+                                );
+                                if (match) {
+                                    if (first.type === 'chronological') openChronologicalPanel(match);
+                                    else openFrictionPanel(match);
+                                }
+                            });
+                        }
+                        grid.appendChild(cell);
                     }
-                    grid.appendChild(cell);
                 }
+            } catch (err) {
+                console.error('Failed to load risk matrix:', err);
             }
         }
 
