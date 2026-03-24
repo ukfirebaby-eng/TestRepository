@@ -11,11 +11,11 @@ HUB_MIN_DEPENDENTS = 3
 
 
 class DiamondOrchestrator:
-    def __init__(self, tenant_id: str, document_id: str, document_name: str = "Untitled"):
+    def __init__(self, tenant_id: str, document_id: str, document_name: str = "Untitled", vault: HybridVault = None):
         self.tenant_id = tenant_id
         self.document_id = document_id
         self.document_name = document_name
-        self.vault = HybridVault(tenant_id=tenant_id)
+        self.vault = vault if vault is not None else HybridVault(tenant_id=tenant_id)
 
     def _parse_pdf_with_geometry(self, file_path: str) -> List[Dict[str, Any]]:
         """
@@ -153,7 +153,9 @@ class DiamondOrchestrator:
                 "source": conflict["node_a"],
                 "target": conflict["node_c"],
                 "diamond": result["analysis"],
-                "provenance_ids": [conflict["chunk_requires"], conflict["chunk_blocks"]]
+                "provenance_ids": [conflict["chunk_requires"], conflict["chunk_blocks"]],
+                "severity": result.get("severity", 3),
+                "probability": result.get("probability", 3),
             })
 
         print(f"[*] Contradiction Hunter: {len(verified_diamonds)} genuine conflict(s) confirmed, {spurious_count} spurious patterns discarded.")
@@ -252,6 +254,8 @@ class DiamondOrchestrator:
                 "target": conflict["successor"],
                 "diamond": result["analysis"],
                 "provenance_ids": [conflict["chunk_bridge"]],
+                "severity": result.get("severity", 3),
+                "probability": result.get("probability", 3),
             })
 
         print(f"[*] Chronos: {len(verified_time_diamonds)} genuine time conflict(s), {spurious_count} spurious discarded.")
