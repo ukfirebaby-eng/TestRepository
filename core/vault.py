@@ -383,6 +383,29 @@ class HybridVault:
             result.append(d)
         return result
 
+    def get_hub_vulnerabilities(self, document_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Calculates In-Degree Centrality to identify single points of failure.
+        Counts all REQUIRES and STARTS_AFTER edges pointing at each node,
+        scoped to the given document, ordered by dependency count descending.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT
+                n.id,
+                n.name,
+                n.label,
+                COUNT(e.id) AS dependency_count
+            FROM nodes n
+            JOIN edges e ON n.id = e.target_id
+            WHERE e.relationship IN ('REQUIRES', 'STARTS_AFTER')
+              AND e.document_id = ?
+            GROUP BY n.id
+            ORDER BY dependency_count DESC
+            LIMIT ?
+        """, (document_id, limit))
+        return [dict(row) for row in cursor.fetchall()]
+
     def upsert_fragility_lines(self, document_id: str, results: List[Dict[str, Any]]) -> None:
         """Persists fragility analysis results to SQLite, replacing any existing rows."""
         cursor = self.conn.cursor()
