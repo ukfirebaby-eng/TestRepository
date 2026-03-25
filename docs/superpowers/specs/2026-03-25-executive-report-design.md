@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS executive_summaries (
 ```json
 {
   "overall_assessment": "Moderate Risk",
+  "generated_at": "2026-03-25T14:32:00Z",
   "summary_narrative": "Plain-English overview of the document's risk profile.",
   "business_impact": "Plain-English 'What This Means For You' paragraph.",
   "issues": [
@@ -80,7 +81,11 @@ CREATE TABLE IF NOT EXISTS executive_summaries (
 }
 ```
 
+`generated_at` is an ISO-8601 UTC timestamp written into `report_json` at cache time by `save_executive_summary`. It is also stored in the `generated_at` column of `executive_summaries` for SQL queries. The UI reads `report.generated_at` directly from the returned `report_json` — no separate envelope field is required.
+
 Issues are ordered: Critical first, then High, then Medium, then Low.
+
+**Zero-issues case:** If a document has no detected issues of any severity, `save_executive_summary` is not called. The POST endpoint returns a single SSE `complete` event with a minimal valid report: `overall_assessment: "No Issues Found"`, `summary_narrative: "No conflicts or risks were detected in this document."`, `business_impact: ""`, `issues: []`, `coverage_verified: true`, `coverage_warning: null`. This report is cached normally so repeat views are instant.
 
 ### New vault methods (`core/vault.py`)
 
@@ -120,13 +125,15 @@ Before any LLM call, the backend queries SQLite for all issues with severity `Cr
 
 ### Stage 3 — `KDECoverageCheck` (Python / numpy, no LLM)
 
-**Input:** ChromaDB embedding vectors for all raw issues in the document + embedding vectors for each issue in the draft report.
+**Embedding source:** Issues (contradictions, bottlenecks, etc.) are derived artefacts — they are not stored directly in ChromaDB. ChromaDB stores embeddings for the raw text chunks ingested from the PDF. Each issue in the vault has one or more `source_chunk_id` references (already present on `edges` and `friction_lines` rows). The KDE check retrieves embeddings for all source chunks associated with the document via `chromadb_collection.get(ids=source_chunk_ids, include=["embeddings"])`. This is the authoritative set of source vectors.
 
-**Method:** Kernel Density Estimation over both sets. Any dense cluster in the source embeddings with no corresponding density in the output embeddings is flagged.
+For the output side, the plain-English text of each issue in the draft `report_json` (`plain_english` field) is embedded using the same ChromaDB collection's embedding function via `chromadb_collection.get` or by calling `embedding_function([text])` directly — the same local model used at ingestion time, so no API call is made.
+
+**Method:** Kernel Density Estimation (via `numpy`) over both vector sets projected to 2D with PCA (also numpy). Any dense cluster in the source embedding space with no corresponding density in the output embedding space is flagged as a potential omission.
 
 **Output:** Sets `coverage_verified: true` if no gaps found. If gaps found, sets `coverage_verified: false` and writes a plain-English `coverage_warning` string.
 
-**Cost:** Zero — uses ChromaDB's existing local embeddings, no API calls.
+**Cost:** Zero — uses ChromaDB's existing local embedding model and numpy (transitive dep). No API calls.
 
 ---
 
@@ -140,7 +147,7 @@ Before any LLM call, the backend queries SQLite for all issues with severity `Cr
 
 ### `POST /api/v1/reports/executive-summary/{document_id}`
 
-- Returns `text/event-stream` SSE response
+- Returns `fastapi.responses.StreamingResponse(generator(), media_type="text/event-stream")` — the route must use `StreamingResponse` with an async generator function, not a standard `JSONResponse`.
 - Streams four progress events then a completion event:
 
 ```
@@ -155,12 +162,14 @@ data: {"stage": "complete",   "report": {...report_json...}}
 - Returns `404` if document not found
 - Returns `409 Conflict` if generation already in progress for this document
 
+**Concurrent generation guard:** A module-level `set` named `_active_generations: set[str]` is maintained in `api.py`. On POST, if `document_id in _active_generations` return 409 immediately. Otherwise add `document_id` to the set before starting the generator and remove it (in a `finally` block) when the generator exits — whether on success or error. This is safe because FastAPI runs in a single async event loop; no lock is required for a plain Python `set`.
+
 ### `DELETE /api/v1/reports/executive-summary/{document_id}`
 
 - Deletes cache row from `executive_summaries`
-- Returns `204 No Content` on success
-- Returns `404` if document not found
-- Called by the UI "Regenerate" button, which immediately fires the POST afterwards
+- Returns `204 No Content` on success — including the case where no cached row existed (idempotent delete)
+- Returns `404` only if the `document_id` does not exist in the `documents` table at all
+- Called by the UI "Regenerate" button, which immediately fires the POST afterwards. Because DELETE is idempotent (returns 204 even with no row to delete), the UI never needs to handle a 404 from DELETE during normal Regenerate flow.
 
 ---
 
