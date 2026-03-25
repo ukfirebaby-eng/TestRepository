@@ -1325,13 +1325,17 @@
             showLoadingOverlay('Generating plain-English report...');
             try {
                 const response = await fetch(`/api/v1/reports/executive-summary/${documentId}`, { method: 'POST' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
 
                 while (true) {
                     const { done, value } = await reader.read();
-                    if (done) break;
+                    if (done) {
+                        buffer += decoder.decode(); // flush any remaining bytes
+                        break;
+                    }
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n');
                     buffer = lines.pop();
