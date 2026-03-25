@@ -334,6 +334,7 @@ class HybridVault:
                 )
             """, (document_id, document_id))
             cursor.execute("DELETE FROM edges WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM executive_summaries WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM documents WHERE id = ?", (document_id,))
 
         # ChromaDB 0.4.22 raises when collection.delete() matches zero documents.
