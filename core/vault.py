@@ -149,6 +149,16 @@ class HybridVault:
             )
         """)
 
+        # Executive Summaries Cache — persists AI-generated plain-English reports
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS executive_summaries (
+                document_id   TEXT PRIMARY KEY,
+                generated_at  TEXT NOT NULL,
+                model         TEXT NOT NULL,
+                report_json   TEXT NOT NULL
+            )
+        """)
+
         self.conn.commit()
 
     def insert_document_chunk(self, chunk_id: str, document_id: str, text: str, page: int, bbox: Tuple[float, float, float, float]) -> None:
@@ -429,6 +439,46 @@ class HybridVault:
             LIMIT ?
         """, (document_id, limit))
         return [dict(row) for row in cursor.fetchall()]
+
+    def get_executive_summary(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """Returns the cached plain-English report for a document, or None if not yet generated."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT report_json FROM executive_summaries WHERE document_id = ?",
+            (document_id,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return json.loads(row["report_json"])
+
+    def save_executive_summary(self, document_id: str, report: Dict[str, Any], model: str) -> None:
+        """Writes or overwrites the cached plain-English report for a document."""
+        generated_at = report.get("generated_at", datetime.now(timezone.utc).isoformat())
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO executive_summaries (document_id, generated_at, model, report_json)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(document_id) DO UPDATE SET
+                    generated_at = excluded.generated_at,
+                    model        = excluded.model,
+                    report_json  = excluded.report_json
+                """,
+                (document_id, generated_at, model, json.dumps(report))
+            )
+            self.conn.commit()
+
+    def delete_executive_summary(self, document_id: str) -> None:
+        """Removes the cached report for a document. Safe to call even if no cache exists."""
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "DELETE FROM executive_summaries WHERE document_id = ?",
+                (document_id,)
+            )
+            self.conn.commit()
 
     def upsert_fragility_lines(self, document_id: str, results: List[Dict[str, Any]]) -> None:
         """Persists fragility analysis results to SQLite, replacing any existing rows."""
