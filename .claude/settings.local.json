@@ -64,7 +64,16 @@
       "Bash(python -m pytest tests/ -v --ignore=tests/test_api_delete.py -q)",
       "Bash(python -m pytest tests/test_vault_reporting.py tests/test_agents.py tests/test_api_reporting.py -q)",
       "Bash(ls \"c:\\\\Users\\\\windo\\\\Downloads\\\\Diamond Miner\\\\vaults\\\\local_user_01\"\" 2>/dev/null || echo \"Directory not found \")",
-      "Bash(python make_nexus_pdf.py)"
+      "Bash(python make_nexus_pdf.py)",
+      "Bash(scripts/start-server.sh --project-dir \"c:/Users/windo/Downloads/Diamond Miner\")",
+      "Bash(bash \"C:/Users/windo/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/skills/brainstorming/scripts/start-server.sh\" --project-dir \"c:/Users/windo/Downloads/Diamond Miner\")",
+      "Bash(python -m pytest tests/test_vault_executive.py -v)",
+      "Bash(python -m pytest tests/test_vault_executive.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_vault_executive.py -q)",
+      "Bash(python -m pytest tests/test_agents_executive.py -v)",
+      "Bash(python -m pytest tests/test_agents_executive.py tests/test_vault_executive.py -q)",
+      "Bash(python -m pytest tests/test_api_executive.py -v)",
+      "Bash(python -m pytest tests/test_api_executive.py -q)"
     ]
   }
 }

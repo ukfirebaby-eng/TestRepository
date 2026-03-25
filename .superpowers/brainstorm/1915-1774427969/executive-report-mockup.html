@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Executive Report Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    padding: 24px;
+    font-size: 14px;
+  }
+
+  .page-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #8b949e;
+    margin-bottom: 16px;
+  }
+
+  /* ── Question ── */
+  .question {
+    font-size: 17px;
+    color: #e6edf3;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .question-sub {
+    font-size: 13px;
+    color: #8b949e;
+    margin-bottom: 28px;
+    line-height: 1.5;
+  }
+
+  /* ── Options ── */
+  .options { display: flex; flex-direction: column; gap: 16px; }
+
+  .option {
+    border: 1.5px solid #30363d;
+    border-radius: 10px;
+    padding: 20px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .option:hover { border-color: #58a6ff; background: #161b22; }
+  .option.selected { border-color: #58a6ff; background: #161b22; }
+  .option.selected::before {
+    content: '✓ Selected';
+    position: absolute;
+    top: 12px; right: 14px;
+    font-size: 11px;
+    color: #58a6ff;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+
+  .option-label {
+    display: inline-block;
+    background: #21262d;
+    color: #8b949e;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+  }
+  .option.selected .option-label { background: #1f6feb33; color: #58a6ff; }
+
+  .option h3 {
+    font-size: 15px;
+    color: #e6edf3;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .option p {
+    font-size: 13px;
+    color: #8b949e;
+    line-height: 1.55;
+    margin-bottom: 14px;
+  }
+
+  /* ── Mini mockup inside each option ── */
+  .mini-report {
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 12px;
+  }
+
+  .mini-header {
+    background: #161b22;
+    border-bottom: 1px solid #21262d;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mini-header .dot { width: 8px; height: 8px; border-radius: 50%; background: #388bfd; }
+  .mini-header span { font-size: 11px; color: #8b949e; }
+
+  .mini-body { padding: 12px; }
+
+  /* Option A — full page report */
+  .health-banner {
+    background: linear-gradient(135deg, #1a2332 0%, #162032 100%);
+    border: 1px solid #1f6feb;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .health-dot { width: 10px; height: 10px; border-radius: 50%; background: #d29922; flex-shrink: 0; }
+  .health-text { font-size: 11px; color: #c9d1d9; line-height: 1.4; }
+  .health-text strong { color: #e6edf3; }
+
+  .issue-card {
+    border-left: 3px solid #ff7b72;
+    background: #161b22;
+    border-radius: 0 5px 5px 0;
+    padding: 8px 10px;
+    margin-bottom: 7px;
+  }
+  .issue-card.amber { border-left-color: #d29922; }
+  .issue-card.blue { border-left-color: #388bfd; }
+  .issue-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #ff7b72;
+    font-weight: 700;
+    margin-bottom: 3px;
+  }
+  .issue-card.amber .issue-label { color: #d29922; }
+  .issue-card.blue .issue-label { color: #388bfd; }
+  .issue-title { font-size: 11px; color: #e6edf3; font-weight: 600; margin-bottom: 2px; }
+  .issue-desc { font-size: 10px; color: #8b949e; line-height: 1.4; }
+  .solution-chip {
+    display: inline-block;
+    margin-top: 5px;
+    font-size: 9px;
+    background: #21262d;
+    color: #3fb950;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .see-more {
+    text-align: center;
+    font-size: 10px;
+    color: #8b949e;
+    padding: 6px;
+    border: 1px dashed #30363d;
+    border-radius: 4px;
+    margin-top: 6px;
+  }
+
+  /* Option B — slide-up panel (existing pattern) */
+  .panel-chrome {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .panel-titlebar {
+    background: #21262d;
+    padding: 8px 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #30363d;
+  }
+  .panel-title { font-size: 11px; color: #e6edf3; font-weight: 600; }
+  .panel-close {
+    font-size: 10px; color: #8b949e; background: #30363d;
+    padding: 2px 6px; border-radius: 3px;
+  }
+  .panel-summary {
+    padding: 10px 12px;
+    font-size: 10px;
+    color: #8b949e;
+    border-bottom: 1px solid #21262d;
+    line-height: 1.5;
+  }
+  .panel-summary strong { color: #c9d1d9; }
+  .panel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid #21262d;
+  }
+  .panel-col { padding: 10px 12px; }
+  .panel-col:first-child { border-right: 1px solid #21262d; }
+  .panel-col-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: #8b949e; margin-bottom: 8px; }
+  .mini-issue { margin-bottom: 5px; padding-left: 8px; border-left: 2px solid #ff7b72; }
+  .mini-issue.amber { border-left-color: #d29922; }
+  .mini-issue-title { font-size: 10px; color: #e6edf3; }
+  .mini-issue-sol { font-size: 9px; color: #3fb950; }
+  .iceberg-bar {
+    padding: 8px 12px;
+    font-size: 10px;
+    color: #8b949e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .iceberg-bar span { color: #58a6ff; }
+
+  /* Option C — side drawer */
+  .drawer-mock {
+    display: flex;
+    gap: 0;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    overflow: hidden;
+    height: 220px;
+  }
+  .drawer-canvas {
+    flex: 1;
+    background: #0d1117;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid #30363d;
+  }
+  .canvas-label { font-size: 10px; color: #30363d; text-align: center; }
+  .canvas-nodes {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  .node-dot {
+    position: absolute;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .drawer-panel {
+    width: 200px;
+    background: #161b22;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .drawer-title {
+    padding: 8px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #e6edf3;
+    border-bottom: 1px solid #30363d;
+    background: #21262d;
+  }
+  .drawer-body { padding: 8px 10px; overflow-y: auto; flex: 1; }
+  .drawer-section { margin-bottom: 10px; }
+  .drawer-section-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: #8b949e; margin-bottom: 5px; }
+  .drawer-item {
+    font-size: 10px;
+    color: #c9d1d9;
+    padding: 4px 6px;
+    border-left: 2px solid #ff7b72;
+    margin-bottom: 4px;
+    background: #0d1117;
+    border-radius: 0 3px 3px 0;
+  }
+  .drawer-item.amber { border-left-color: #d29922; }
+  .drawer-item-sol { font-size: 9px; color: #3fb950; margin-top: 1px; }
+  .drawer-more { font-size: 9px; color: #8b949e; text-align: center; padding: 4px; }
+
+  /* Selection indicator at bottom */
+  .selection-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #161b22;
+    border-top: 1px solid #30363d;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+  }
+  .selection-bar .sel-text { color: #8b949e; }
+  .selection-bar .sel-text span { color: #58a6ff; font-weight: 600; }
+  .confirm-btn {
+    background: #238636;
+    color: #fff;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .confirm-btn:disabled { background: #21262d; color: #8b949e; cursor: default; }
+
+  body { padding-bottom: 60px; }
+</style>
+</head>
+<body>
+
+<div class="page-label">Visual Mockup · Executive Report UI</div>
+
+<div class="question">How should the plain-English report be presented?</div>
+<div class="question-sub">
+  Three layout approaches — all show the same content (AI narrative + issues + solutions).<br>
+  Click an option to select it, then let me know what you think in the terminal.
+</div>
+
+<div class="options">
+
+  <!-- ══ OPTION A: Full Report Page ══ -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="option-label">Option A</div>
+    <h3>Dedicated Report Page — replaces the canvas while open</h3>
+    <p>A full-screen report replaces the 3D canvas temporarily. Scrollable, printable, shareable. Closes to return to the graph.</p>
+    <div class="mini-report">
+      <div class="mini-header">
+        <div class="dot"></div>
+        <span>📊 Executive Intelligence Report — Nexus Programme Charter</span>
+      </div>
+      <div class="mini-body">
+        <div class="health-banner">
+          <div class="health-dot"></div>
+          <div class="health-text">
+            <strong>Overall Assessment: Moderate Risk.</strong>
+            This strategy has 6 internal conflicts that could derail delivery.
+            The most urgent issue is a compliance gap — the product launches before legal sign-off is complete.
+          </div>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">⚠ Critical Issue 1 of 3</div>
+          <div class="issue-title">Product ships before legal review finishes</div>
+          <div class="issue-desc">The current plan requires the product to go live 3 weeks before the compliance team has finished their checks. This creates a regulatory risk.</div>
+          <div class="solution-chip">✓ Suggested Fix: Delay launch by 3 weeks, or run legal review in parallel with development.</div>
+        </div>
+        <div class="issue-card amber">
+          <div class="issue-label">⚠ Issue 2 of 3</div>
+          <div class="issue-title">The delivery team depends on two suppliers who both depend on the same third party</div>
+          <div class="issue-desc">If that shared supplier is delayed, it will cascade into both workstreams simultaneously.</div>
+          <div class="solution-chip">✓ Suggested Fix: Identify a backup supplier or stagger the dependency timelines.</div>
+        </div>
+        <div class="issue-card blue">
+          <div class="issue-label">Issue 3 of 3</div>
+          <div class="issue-title">Budget approval is required before procurement, but approval gates are scheduled after procurement begins</div>
+          <div class="issue-desc">This creates a chicken-and-egg problem that will stall procurement indefinitely without a decision.</div>
+          <div class="solution-chip">✓ Suggested Fix: Fast-track the budget approval gate to week 2.</div>
+        </div>
+        <div class="see-more">▾ 3 further lower-priority issues — click to expand</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ OPTION B: Slide-up Panel (existing pattern) ══ -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="option-label">Option B</div>
+    <h3>Slide-up Panel — consistent with existing Report button</h3>
+    <p>The plain-English report appears in the same slide-up panel already used for Friction Queue and Bottlenecks, as a new tab. Familiar, no context switch.</p>
+    <div class="panel-chrome">
+      <div class="panel-titlebar">
+        <div class="panel-title">📊 Executive Intelligence Report</div>
+        <div class="panel-close">Close ✕</div>
+      </div>
+      <div class="panel-summary">
+        <strong>Nexus Programme Charter · 6 conflicts detected · Moderate Risk.</strong>
+        The biggest danger is that the product is scheduled to launch before legal sign-off, creating a compliance gap. Two further issues involve cascading supplier dependencies and a budget approval sequence that blocks procurement.
+      </div>
+      <div class="panel-grid">
+        <div class="panel-col">
+          <div class="panel-col-title">Critical Issues</div>
+          <div class="mini-issue">
+            <div class="mini-issue-title">Launch before legal review</div>
+            <div class="mini-issue-sol">↳ Delay launch 3 weeks</div>
+          </div>
+          <div class="mini-issue amber">
+            <div class="mini-issue-title">Shared supplier bottleneck</div>
+            <div class="mini-issue-sol">↳ Identify backup supplier</div>
+          </div>
+          <div class="mini-issue amber">
+            <div class="mini-issue-title">Budget approval after procurement</div>
+            <div class="mini-issue-sol">↳ Fast-track approval to week 2</div>
+          </div>
+        </div>
+        <div class="panel-col">
+          <div class="panel-col-title">What This Means For You</div>
+          <div style="font-size:10px;color:#8b949e;line-height:1.55;">
+            If these three issues are left unresolved, the programme faces a <strong style="color:#ff7b72;">high probability of a compliance breach</strong> and a <strong style="color:#d29922;">moderate probability of a 6–8 week schedule slip</strong> in the supply chain phase.
+          </div>
+        </div>
+      </div>
+      <div class="iceberg-bar">
+        <span>▾ 3 further lower-priority issues</span>
+        <span style="color:#8b949e;">Full technical log available in Friction Queue tab</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ OPTION C: Side Drawer ══ -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="option-label">Option C</div>
+    <h3>Side Drawer — report sits beside the live 3D graph</h3>
+    <p>A narrow panel docks to the right of the canvas. The graph remains fully visible. Clicking an issue in the report highlights it live in the graph.</p>
+    <div class="drawer-mock">
+      <div class="drawer-canvas">
+        <!-- Simulated graph nodes -->
+        <svg width="100%" height="100%" style="position:absolute;opacity:0.4">
+          <line x1="60" y1="50" x2="130" y2="100" stroke="#388bfd" stroke-width="1"/>
+          <line x1="130" y1="100" x2="80" y2="160" stroke="#ff7b72" stroke-width="1.5" stroke-dasharray="4,2"/>
+          <line x1="130" y1="100" x2="200" y2="130" stroke="#388bfd" stroke-width="1"/>
+          <line x1="200" y1="130" x2="160" y2="180" stroke="#d29922" stroke-width="1.5" stroke-dasharray="4,2"/>
+          <circle cx="60" cy="50" r="6" fill="#388bfd"/>
+          <circle cx="130" cy="100" r="9" fill="#ff7b72"/>
+          <circle cx="80" cy="160" r="5" fill="#3fb950"/>
+          <circle cx="200" cy="130" r="7" fill="#d29922"/>
+          <circle cx="160" cy="180" r="5" fill="#3fb950"/>
+        </svg>
+        <div class="canvas-label" style="z-index:1;position:relative">3D Graph<br>(stays visible)</div>
+      </div>
+      <div class="drawer-panel">
+        <div class="drawer-title">📊 Executive Report</div>
+        <div class="drawer-body">
+          <div style="font-size:9px;color:#8b949e;margin-bottom:8px;line-height:1.5;">
+            <strong style="color:#d29922;">Moderate Risk.</strong> 6 conflicts. 3 critical.
+          </div>
+          <div class="drawer-section">
+            <div class="drawer-section-title">Critical Issues</div>
+            <div class="drawer-item">
+              Launch before legal review
+              <div class="drawer-item-sol">↳ Delay launch 3 weeks</div>
+            </div>
+            <div class="drawer-item amber">
+              Shared supplier bottleneck
+              <div class="drawer-item-sol">↳ Backup supplier</div>
+            </div>
+            <div class="drawer-item amber">
+              Budget approval sequencing
+              <div class="drawer-item-sol">↳ Fast-track to week 2</div>
+            </div>
+          </div>
+          <div class="drawer-more">▾ 3 more issues</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Selection bar -->
+<div class="selection-bar">
+  <div class="sel-text" id="sel-status">No option selected yet</div>
+  <button class="confirm-btn" id="confirm-btn" disabled>Confirm selection</button>
+</div>
+
+<script>
+  let selected = null;
+
+  function toggleSelect(el) {
+    document.querySelectorAll('.option').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    selected = el.dataset.choice;
+    const labels = { a: 'Option A — Full Report Page', b: 'Option B — Slide-up Panel', c: 'Option C — Side Drawer' };
+    document.getElementById('sel-status').innerHTML = 'Selected: <span>' + labels[selected] + '</span>';
+    document.getElementById('confirm-btn').disabled = false;
+
+    // Record event for Claude to read
+    try {
+      fetch('/__event', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ type: 'click', choice: selected, text: labels[selected], timestamp: Date.now() })
+      });
+    } catch(e) {}
+  }
+</script>
+</body>
+</html>
