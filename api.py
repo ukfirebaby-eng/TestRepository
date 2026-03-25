@@ -246,8 +246,11 @@ async def generate_executive_summary(document_id: str):
     if document_id in _active_generations:
         raise HTTPException(status_code=409, detail="Report generation already in progress for this document.")
 
+    # Add synchronously in the endpoint body — before the generator starts —
+    # so no two requests can both pass the 409 guard in the same event loop tick.
+    _active_generations.add(document_id)
+
     async def _stream():
-        _active_generations.add(document_id)
         try:
             yield f"data: {_json.dumps({'stage': 'analysing', 'message': 'Analysing issues...'})}\n\n"
             raw_issues = await asyncio.to_thread(_gather_raw_issues, document_id)
