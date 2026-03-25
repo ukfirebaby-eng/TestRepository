@@ -1335,26 +1335,46 @@
                 const decoder = new TextDecoder();
                 let buffer = '';
 
+                const processLines = (text) => {
+                    const lines = text.split('\n');
+                    for (const line of lines) {
+                        if (!line.startsWith('data:')) continue;
+                        try {
+                            const event = JSON.parse(line.slice(5).trim());
+                            if (event.stage === 'complete') {
+                                _currentReport = event.report;
+                                overlay.style.display = 'none';
+                                renderReportPage(event.report);
+                            } else if (event.message) {
+                                statusEl.textContent = event.message;
+                            }
+                        } catch (_) {}
+                    }
+                };
+
+                let reportReceived = false;
+                const origProcessLines = processLines;
+                const trackingProcessLines = (text) => {
+                    if (text.includes('"complete"')) reportReceived = true;
+                    origProcessLines(text);
+                };
+
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) {
-                        buffer += decoder.decode(); // flush any remaining bytes
+                        buffer += decoder.decode(); // flush remaining bytes
+                        trackingProcessLines(buffer);
                         break;
                     }
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n');
-                    buffer = lines.pop();
-                    for (const line of lines) {
-                        if (!line.startsWith('data:')) continue;
-                        const event = JSON.parse(line.slice(5).trim());
-                        if (event.stage === 'complete') {
-                            _currentReport = event.report;
-                            overlay.style.display = 'none';
-                            renderReportPage(event.report);
-                        } else {
-                            statusEl.textContent = event.message;
-                        }
-                    }
+                    buffer = lines.pop(); // keep incomplete last line
+                    trackingProcessLines(lines.join('\n'));
+                }
+
+                if (!reportReceived) {
+                    overlay.style.display = 'none';
+                    showToast('Report generation failed — check server logs for details.');
                 }
             } catch (e) {
                 overlay.style.display = 'none';
