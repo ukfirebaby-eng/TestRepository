@@ -1322,7 +1322,12 @@
             }
 
             // Not cached — stream generation
-            showLoadingOverlay('Generating plain-English report...');
+            dropZone.style.display  = 'none';
+            telemetry.style.display = 'block';
+            retryBtn.style.display  = 'none';
+            statusEl.style.color    = '';
+            statusEl.textContent    = 'Generating plain-English report...';
+            overlay.style.display   = 'flex';
             try {
                 const response = await fetch(`/api/v1/reports/executive-summary/${documentId}`, { method: 'POST' });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1344,15 +1349,15 @@
                         const event = JSON.parse(line.slice(5).trim());
                         if (event.stage === 'complete') {
                             _currentReport = event.report;
-                            hideLoadingOverlay();
+                            overlay.style.display = 'none';
                             renderReportPage(event.report);
                         } else {
-                            updateLoadingMessage(event.message);
+                            statusEl.textContent = event.message;
                         }
                     }
                 }
             } catch (e) {
-                hideLoadingOverlay();
+                overlay.style.display = 'none';
                 console.error('Report generation failed:', e);
                 showToast('Report generation failed. Please try again.');
             }
