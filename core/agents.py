@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from openai import OpenAI
 from typing import Dict, Any, List
+import numpy as np
 
 def _get_client() -> OpenAI:
     """Returns an OpenAI-compatible client for the configured provider.
@@ -294,3 +295,280 @@ RAW TEXT:
         except Exception as e:
             print(f"[!] Chronos Agent Failed: {e}")
             return {"temporal_nodes": [], "temporal_edges": []}
+
+
+class StorytellerAgent:
+    """
+    Translates raw issue data into a plain-English executive report.
+    Temperature 0.7 for natural prose. Returns a structured report_json dict.
+    """
+
+    SYSTEM_PROMPT = """You are an Executive Communication Specialist. Translate complex technical project risks into clear, plain-English summaries for senior business leaders who are not technical.
+
+RULES:
+1. Never use technical terms (no "node", "edge", "graph", "centrality", "vector", "contradiction").
+2. Express every issue as a business consequence (cost, compliance, delay, dependency).
+3. Use "issue" not "paradox" or "diamond".
+4. Return ONLY valid JSON matching the schema below. No markdown, no preamble.
+
+OUTPUT SCHEMA:
+{
+  "overall_assessment": "No Issues Found | Low Risk | Moderate Risk | High Risk | Critical Risk",
+  "generated_at": "<ISO 8601 UTC timestamp>",
+  "summary_narrative": "<2-3 sentence plain-English overview>",
+  "business_impact": "<plain-English What This Means For You paragraph — mention specific business risks>",
+  "issues": [
+    {
+      "severity": "critical | high | medium | low",
+      "title": "<short plain-English title, max 10 words>",
+      "plain_english": "<plain-English description of the problem and its business consequence>",
+      "solution": "<plain-English recommended fix>",
+      "source_nodes": ["<node_id>"]
+    }
+  ],
+  "coverage_verified": true,
+  "coverage_warning": null
+}
+
+Order issues: critical first, then high, then medium, then low."""
+
+    def __init__(self):
+        self.model = _get_model("smart")
+
+    def run(self, raw_issues: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generates a plain-English report from raw issue data.
+        Returns immediately with a minimal report if no issues exist.
+        """
+        all_issues = (
+            raw_issues.get("friction_lines", [])
+            + raw_issues.get("chronological_friction_lines", [])
+            + raw_issues.get("hub_vulnerabilities", [])
+            + raw_issues.get("risk_matrix", [])
+        )
+
+        if not all_issues:
+            return {
+                "overall_assessment": "No Issues Found",
+                "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "summary_narrative": "No conflicts or risks were detected in this document.",
+                "business_impact": "",
+                "issues": [],
+                "coverage_verified": True,
+                "coverage_warning": None,
+            }
+
+        # Stage 0 — deterministic hard-stop injection
+        critical = [
+            i for i in all_issues
+            if isinstance(i.get("severity"), int) and i["severity"] >= 5
+        ]
+        must_include_block = ""
+        if critical:
+            must_include_block = "\n\nMUST INCLUDE (these issues are mandatory — do not omit them):\n"
+            must_include_block += json.dumps(critical, indent=2)
+
+        user_prompt = (
+            f"Here is the complete list of issues detected in this document:\n\n"
+            f"{json.dumps(raw_issues, indent=2)}"
+            f"{must_include_block}"
+        )
+
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=self.model,
+            temperature=0.7,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        return json.loads(response.choices[0].message.content)
+
+
+class CriticAgent:
+    """
+    Audits a draft report against the raw issue list.
+    Finds omissions and triggers Storyteller revision (max 2 retries).
+    Temperature 0.0 for deterministic auditing.
+    """
+
+    SYSTEM_PROMPT = """You are a meticulous audit specialist. You will be given:
+1. A draft executive report (JSON)
+2. A complete list of raw issues (JSON array)
+
+Your ONLY job: identify raw issues that have NO representation in the draft report's issues array.
+
+Return a JSON array of missing raw issues. If nothing is missing, return an empty array: []
+Return ONLY valid JSON. No markdown, no explanation."""
+
+    MAX_RETRIES = 2
+
+    def run(
+        self,
+        draft: Dict[str, Any],
+        raw_issues: Dict[str, Any],
+        storyteller: Any = None,
+    ) -> Dict[str, Any]:
+        """
+        Compares draft against raw_issues. Triggers Storyteller revision if gaps found.
+        After MAX_RETRIES, appends a coverage_warning to the report instead of failing.
+        """
+        if storyteller is None:
+            storyteller = StorytellerAgent()
+
+        client = _get_client()
+        current_draft = draft
+        all_raw = (
+            raw_issues.get("friction_lines", [])
+            + raw_issues.get("chronological_friction_lines", [])
+            + raw_issues.get("hub_vulnerabilities", [])
+            + raw_issues.get("risk_matrix", [])
+        )
+
+        for attempt in range(self.MAX_RETRIES):
+            response = client.chat.completions.create(
+                model=_get_model("fast"),
+                temperature=0.0,
+                # No response_format here — the Critic returns a bare JSON array ([])
+                # and json_object mode forbids bare arrays.
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": (
+                        f"Draft report:\n{json.dumps(current_draft, indent=2)}\n\n"
+                        f"Complete raw issue list:\n{json.dumps(all_raw, indent=2)}"
+                    )},
+                ],
+            )
+            content = response.choices[0].message.content
+            try:
+                parsed = json.loads(content)
+                # Model should return a bare array; handle any wrapping defensively
+                if isinstance(parsed, list):
+                    gaps = parsed
+                elif isinstance(parsed, dict):
+                    # Flatten any top-level list value regardless of key name
+                    list_values = [v for v in parsed.values() if isinstance(v, list)]
+                    gaps = list_values[0] if list_values else []
+                else:
+                    gaps = []
+            except (json.JSONDecodeError, AttributeError):
+                gaps = []
+
+            if not gaps:
+                return current_draft
+
+            # Inject missing items and regenerate
+            injected = dict(raw_issues)
+            injected["_forced_inclusions"] = gaps
+            current_draft = storyteller.run(injected)
+
+        # Max retries exhausted — append warning and return
+        current_draft["coverage_verified"] = False
+        current_draft["coverage_warning"] = (
+            "Note: the AI could not fully verify that all issues are represented in this report. "
+            "Please cross-reference the Friction Queue for the complete technical list."
+        )
+        return current_draft
+
+
+class KDECoverageCheck:
+    """
+    Verifies that the generated report semantically covers all source material.
+    Uses cosine similarity gap detection with numpy — no API calls, no extra cost.
+
+    For each source chunk embedding, finds the maximum cosine similarity to any
+    output issue embedding. If any source chunk's max similarity is below the
+    threshold, it is considered uncovered and a coverage_warning is appended.
+
+    IMPORTANT: uses vault.collection._embedding_function — the same model used at
+    ingestion time — so source and output embeddings are in the same vector space.
+    """
+
+    SIMILARITY_THRESHOLD = 0.25
+
+    def __init__(self, vault: Any):
+        self.vault = vault
+
+    def check(self, document_id: str, report: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Compares source chunk embeddings to output issue embeddings.
+        Returns the report dict with coverage_verified and coverage_warning set.
+        """
+        # 1. Collect source_chunk_ids from edges and friction_lines for this document
+        cursor = self.vault.conn.cursor()
+        cursor.execute(
+            """
+            SELECT DISTINCT source_chunk_id FROM edges WHERE document_id = ?
+            UNION
+            SELECT DISTINCT provenance_ids FROM friction_lines WHERE document_id = ?
+            """,
+            (document_id, document_id)
+        )
+        rows = cursor.fetchall()
+        source_chunk_ids = [r["source_chunk_id"] for r in rows if r["source_chunk_id"]]
+
+        if not source_chunk_ids:
+            report["coverage_verified"] = True
+            report["coverage_warning"] = None
+            return report
+
+        # 2. Fetch source embeddings from ChromaDB
+        chroma_result = self.vault.collection.get(
+            ids=source_chunk_ids,
+            include=["embeddings"]
+        )
+        source_embeddings = chroma_result.get("embeddings") or []
+        if not source_embeddings:
+            report["coverage_verified"] = True
+            report["coverage_warning"] = None
+            return report
+
+        source_matrix = np.array(source_embeddings, dtype=np.float32)
+
+        # 3. Embed report issue texts using the SAME embedding function as ingestion.
+        #    vault.collection._embedding_function is the ChromaDB collection's own EF —
+        #    guaranteed to be in the same vector space as the stored source embeddings.
+        issue_texts = [
+            i.get("plain_english", "") for i in report.get("issues", [])
+            if i.get("plain_english")
+        ]
+        if not issue_texts:
+            report["coverage_verified"] = False
+            report["coverage_warning"] = (
+                "Note: the AI could not fully verify that all issues are represented in this report. "
+                "Please cross-reference the Friction Queue for the complete technical list."
+            )
+            return report
+
+        ef = self.vault.collection._embedding_function
+        output_embeddings = ef(issue_texts)
+        output_matrix = np.array(output_embeddings, dtype=np.float32)
+
+        # 4. Cosine similarity: normalise both matrices then compute dot product
+        def _l2_norm(m: np.ndarray) -> np.ndarray:
+            norms = np.linalg.norm(m, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1e-10, norms)
+            return m / norms
+
+        source_norm = _l2_norm(source_matrix)
+        output_norm = _l2_norm(output_matrix)
+
+        # similarity[i, j] = cosine similarity between source[i] and output[j]
+        similarity = source_norm @ output_norm.T  # shape: (n_source, n_output)
+        max_similarity_per_source = similarity.max(axis=1)  # shape: (n_source,)
+
+        # 5. Flag if any source chunk is below threshold
+        uncovered = np.sum(max_similarity_per_source < self.SIMILARITY_THRESHOLD)
+        if uncovered > 0:
+            report["coverage_verified"] = False
+            report["coverage_warning"] = (
+                "Note: the AI could not fully verify that all issues are represented in this report. "
+                "Please cross-reference the Friction Queue for the complete technical list."
+            )
+        else:
+            report["coverage_verified"] = True
+            report["coverage_warning"] = None
+
+        return report
