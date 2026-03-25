@@ -1,10 +1,13 @@
 import os
 import uuid
 import shutil
+import asyncio
+import json as _json
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any, List
+from core.agents import StorytellerAgent, CriticAgent, KDECoverageCheck
 
 # Import our previously written core logic
 from core.orchestrator import DiamondOrchestrator
@@ -29,6 +32,11 @@ JOB_STORE: Dict[str, Dict[str, Any]] = {}
 # --- In-Memory Document Store ---
 # Maps document_id -> {"friction_lines": [...], "chronological_friction_lines": [...]}
 DOCUMENT_STORE: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+
+# --- In-flight generation tracker ---
+# Prevents concurrent generation for the same document.
+# Safe as a plain set — FastAPI's async loop is single-threaded.
+_active_generations: set = set()
 
 
 def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id: str, document_name: str):
@@ -58,6 +66,16 @@ def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id
         print(f"[!] Background Task Failed: {e}")
         JOB_STORE[job_id]["status"] = "failed"
         JOB_STORE[job_id]["error"] = str(e)
+
+
+def _gather_raw_issues(document_id: str) -> dict:
+    """Collates all raw issue data from the vault for the Storyteller prompt."""
+    return {
+        "friction_lines": vault.get_friction_lines(document_id),
+        "chronological_friction_lines": vault.get_chronological_friction_lines(document_id),
+        "hub_vulnerabilities": vault.get_hub_vulnerabilities(document_id),
+        "risk_matrix": vault.get_risk_matrix_data(document_id),
+    }
 
 
 # --- UI Route ---
@@ -195,6 +213,78 @@ async def get_risk_matrix(document_id: str):
     if cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     return {"risk_matrix": vault.get_risk_matrix_data(document_id)}
+
+
+@app.get("/api/v1/reports/executive-summary/{document_id}")
+async def get_executive_summary(document_id: str):
+    """
+    Returns the cached plain-English executive report for a document.
+    Returns {"cached": false} if the document exists but report has not been generated yet.
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    cached = vault.get_executive_summary(document_id)
+    if cached is None:
+        return {"cached": False}
+    return {"cached": True, "report": cached}
+
+
+@app.post("/api/v1/reports/executive-summary/{document_id}")
+async def generate_executive_summary(document_id: str):
+    """
+    Triggers multi-agent plain-English report generation and streams progress via SSE.
+    Caches the completed report in SQLite. Returns 409 if already generating.
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if document_id in _active_generations:
+        raise HTTPException(status_code=409, detail="Report generation already in progress for this document.")
+
+    async def _stream():
+        _active_generations.add(document_id)
+        try:
+            yield f"data: {_json.dumps({'stage': 'analysing', 'message': 'Analysing issues...'})}\n\n"
+            raw_issues = await asyncio.to_thread(_gather_raw_issues, document_id)
+
+            yield f"data: {_json.dumps({'stage': 'drafting', 'message': 'Drafting plain-English narrative...'})}\n\n"
+            storyteller = StorytellerAgent()
+            draft = await asyncio.to_thread(storyteller.run, raw_issues)
+
+            yield f"data: {_json.dumps({'stage': 'auditing', 'message': 'Auditing for omissions...'})}\n\n"
+            critic = CriticAgent()
+            audited = await asyncio.to_thread(critic.run, draft, raw_issues, storyteller)
+
+            yield f"data: {_json.dumps({'stage': 'verifying', 'message': 'Verifying coverage...'})}\n\n"
+            kde = KDECoverageCheck(vault)
+            final = await asyncio.to_thread(kde.check, document_id, audited)
+
+            vault.save_executive_summary(document_id, final, storyteller.model)
+            yield f"data: {_json.dumps({'stage': 'complete', 'report': final})}\n\n"
+        finally:
+            _active_generations.discard(document_id)
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+@app.delete("/api/v1/reports/executive-summary/{document_id}", status_code=204)
+async def delete_executive_summary(document_id: str):
+    """
+    Clears the cached executive report for a document (called by the Regenerate button).
+    Returns 204 even if no cached row exists — idempotent.
+    Returns 404 only if the document_id does not exist at all.
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    vault.delete_executive_summary(document_id)
 
 
 @app.get("/api/v1/canvas/{document_id}")

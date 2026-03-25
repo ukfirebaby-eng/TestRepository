@@ -1,0 +1,152 @@
+import json
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import patch, MagicMock
+
+from api import app
+
+
+def _make_mock_vault(doc_exists=True, cached_report=None):
+    mock_vault = MagicMock()
+
+    def fresh_cursor():
+        cur = MagicMock()
+        cur.fetchone.return_value = {"id": "doc_abc"} if doc_exists else None
+        cur.fetchall.return_value = []
+        return cur
+
+    mock_vault.conn.cursor.side_effect = fresh_cursor
+    mock_vault.get_executive_summary.return_value = cached_report
+    mock_vault.get_friction_lines.return_value = []
+    mock_vault.get_chronological_friction_lines.return_value = []
+    mock_vault.get_hub_vulnerabilities.return_value = []
+    mock_vault.get_risk_matrix_data.return_value = []
+    return mock_vault
+
+
+def _minimal_report():
+    return {
+        "overall_assessment": "No Issues Found",
+        "generated_at": "2026-03-25T12:00:00Z",
+        "summary_narrative": "No issues.",
+        "business_impact": "",
+        "issues": [],
+        "coverage_verified": True,
+        "coverage_warning": None,
+    }
+
+
+class TestGetExecutiveSummary:
+    def test_returns_404_for_missing_document(self):
+        mock_vault = _make_mock_vault(doc_exists=False)
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/executive-summary/doc_missing")
+        assert response.status_code == 404
+
+    def test_returns_cached_false_when_no_cache(self):
+        mock_vault = _make_mock_vault(cached_report=None)
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/executive-summary/doc_abc")
+        assert response.status_code == 200
+        assert response.json()["cached"] is False
+
+    def test_returns_cached_true_with_report_when_cached(self):
+        mock_vault = _make_mock_vault(cached_report=_minimal_report())
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.get("/api/v1/reports/executive-summary/doc_abc")
+        data = response.json()
+        assert data["cached"] is True
+        assert data["report"]["overall_assessment"] == "No Issues Found"
+
+
+class TestPostExecutiveSummary:
+    def _run_post_stream(self, mock_vault):
+        """Fires the POST and collects all SSE event lines."""
+        mock_storyteller = MagicMock()
+        mock_storyteller.run.return_value = _minimal_report()
+        mock_storyteller.model = "gpt-4o"
+
+        mock_critic = MagicMock()
+        mock_critic.run.return_value = _minimal_report()
+
+        mock_kde = MagicMock()
+        mock_kde.check.return_value = _minimal_report()
+
+        with patch("api.vault", mock_vault), \
+             patch("api.StorytellerAgent", return_value=mock_storyteller), \
+             patch("api.CriticAgent", return_value=mock_critic), \
+             patch("api.KDECoverageCheck", return_value=mock_kde), \
+             patch("api._active_generations", set()):
+            with TestClient(app) as c:
+                with c.stream("POST", "/api/v1/reports/executive-summary/doc_abc") as r:
+                    lines = [line for line in r.iter_lines() if line.startswith("data:")]
+        return lines
+
+    def test_returns_404_for_missing_document(self):
+        mock_vault = _make_mock_vault(doc_exists=False)
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.post("/api/v1/reports/executive-summary/doc_missing")
+        assert response.status_code == 404
+
+    def test_returns_409_when_already_generating(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault), \
+             patch("api._active_generations", {"doc_abc"}):
+            with TestClient(app) as c:
+                response = c.post("/api/v1/reports/executive-summary/doc_abc")
+        assert response.status_code == 409
+
+    def test_streams_four_progress_events(self):
+        lines = self._run_post_stream(_make_mock_vault())
+        stages = [json.loads(l[5:])["stage"] for l in lines]
+        assert "analysing" in stages
+        assert "drafting" in stages
+        assert "auditing" in stages
+        assert "verifying" in stages
+
+    def test_streams_complete_event_with_report(self):
+        lines = self._run_post_stream(_make_mock_vault())
+        complete_lines = [l for l in lines if '"complete"' in l]
+        assert len(complete_lines) == 1
+        data = json.loads(complete_lines[0][5:])
+        assert "report" in data
+        assert data["report"]["overall_assessment"] == "No Issues Found"
+
+    def test_writes_to_cache_on_complete(self):
+        mock_vault = _make_mock_vault()
+        self._run_post_stream(mock_vault)
+        mock_vault.save_executive_summary.assert_called_once()
+
+
+class TestDeleteExecutiveSummary:
+    def test_returns_404_for_missing_document(self):
+        mock_vault = _make_mock_vault(doc_exists=False)
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.delete("/api/v1/reports/executive-summary/doc_missing")
+        assert response.status_code == 404
+
+    def test_returns_204_when_cache_exists(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.delete("/api/v1/reports/executive-summary/doc_abc")
+        assert response.status_code == 204
+
+    def test_returns_204_when_no_cache_row_idempotent(self):
+        mock_vault = _make_mock_vault(cached_report=None)
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.delete("/api/v1/reports/executive-summary/doc_abc")
+        assert response.status_code == 204
+
+    def test_calls_delete_executive_summary(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                c.delete("/api/v1/reports/executive-summary/doc_abc")
+        mock_vault.delete_executive_summary.assert_called_once_with("doc_abc")
