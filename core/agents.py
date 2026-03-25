@@ -496,6 +496,9 @@ class KDECoverageCheck:
         Compares source chunk embeddings to output issue embeddings.
         Returns the report dict with coverage_verified and coverage_warning set.
         """
+        # Shallow-copy so we don't mutate the caller's dict
+        report = dict(report)
+
         # 1. Collect source_chunk_ids from edges and friction_lines for this document.
         #    edges.source_chunk_id is a plain string; friction_lines.provenance_ids is a
         #    JSON-serialised list — these must be collected and flattened separately.

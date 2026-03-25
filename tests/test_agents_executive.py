@@ -208,3 +208,4 @@ class TestKDECoverageCheck:
         checker = KDECoverageCheck(mock_vault)
         result = checker.check("doc_empty", _draft_report())
         assert result["coverage_verified"] is True
+        assert result["coverage_warning"] is None
