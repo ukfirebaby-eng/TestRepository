@@ -496,18 +496,35 @@ class KDECoverageCheck:
         Compares source chunk embeddings to output issue embeddings.
         Returns the report dict with coverage_verified and coverage_warning set.
         """
-        # 1. Collect source_chunk_ids from edges and friction_lines for this document
+        # 1. Collect source_chunk_ids from edges and friction_lines for this document.
+        #    edges.source_chunk_id is a plain string; friction_lines.provenance_ids is a
+        #    JSON-serialised list — these must be collected and flattened separately.
         cursor = self.vault.conn.cursor()
         cursor.execute(
-            """
-            SELECT DISTINCT source_chunk_id FROM edges WHERE document_id = ?
-            UNION
-            SELECT DISTINCT provenance_ids FROM friction_lines WHERE document_id = ?
-            """,
-            (document_id, document_id)
+            "SELECT DISTINCT source_chunk_id FROM edges WHERE document_id = ?",
+            (document_id,)
         )
-        rows = cursor.fetchall()
-        source_chunk_ids = [r["source_chunk_id"] for r in rows if r["source_chunk_id"]]
+        edge_ids = [r["source_chunk_id"] for r in cursor.fetchall() if r["source_chunk_id"]]
+
+        cursor.execute(
+            "SELECT DISTINCT provenance_ids FROM friction_lines WHERE document_id = ?",
+            (document_id,)
+        )
+        friction_ids: List[str] = []
+        for r in cursor.fetchall():
+            raw = r["provenance_ids"]
+            if not raw:
+                continue
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    friction_ids.extend(str(x) for x in parsed if x)
+                else:
+                    friction_ids.append(str(parsed))
+            except (json.JSONDecodeError, TypeError):
+                friction_ids.append(str(raw))
+
+        source_chunk_ids = list(dict.fromkeys(edge_ids + friction_ids))  # deduplicate, preserve order
 
         if not source_chunk_ids:
             report["coverage_verified"] = True

@@ -92,6 +92,7 @@ class TestStorytellerAgent:
         assert result["overall_assessment"] == "No Issues Found"
         assert result["issues"] == []
         assert result["coverage_verified"] is True
+        assert result["coverage_warning"] is None
 
 
 # ── CriticAgent ───────────────────────────────────────────────────────────────
@@ -151,9 +152,13 @@ class TestCriticAgent:
 class TestKDECoverageCheck:
     def _make_vault_with_embeddings(self, source_embeddings, source_ids):
         mock_vault = MagicMock()
-        mock_vault.conn.cursor.return_value.fetchall.return_value = [
-            {"source_chunk_id": sid} for sid in source_ids
+        mock_cursor = MagicMock()
+        # Two fetchall calls: first for edges (source_chunk_id), second for friction_lines (empty)
+        mock_cursor.fetchall.side_effect = [
+            [{"source_chunk_id": sid} for sid in source_ids],
+            [],
         ]
+        mock_vault.conn.cursor.return_value = mock_cursor
         mock_vault.collection.get.return_value = {
             "embeddings": source_embeddings,
             "ids": source_ids,
@@ -197,8 +202,9 @@ class TestKDECoverageCheck:
     def test_returns_report_unchanged_when_no_source_chunks(self):
         from core.agents import KDECoverageCheck
         mock_vault = MagicMock()
-        mock_vault.conn.cursor.return_value.fetchall.return_value = []
-        mock_vault.collection.get.return_value = {"embeddings": [], "ids": []}
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.side_effect = [[], []]  # Both queries return empty
+        mock_vault.conn.cursor.return_value = mock_cursor
         checker = KDECoverageCheck(mock_vault)
         result = checker.check("doc_empty", _draft_report())
         assert result["coverage_verified"] is True
