@@ -3,10 +3,13 @@ core/simulator.py — Blast radius and System Vulnerability Index (SVI) simulati
 plus Black Swan scenario generation via LLM.
 """
 
+import datetime
 import json
 import re
 from collections import deque
 from typing import Any, Dict, List
+
+import numpy as np
 
 from core.agents import _get_client, _get_model
 
@@ -234,3 +237,229 @@ class BlackSwanAgent:
 
         # ── 7. Return ─────────────────────────────────────────────────────────
         return {"scenarios": validated}
+
+
+class MonteCarloForecaster:
+    """
+    Runs Monte Carlo schedule-delay simulations over a document's temporal data.
+    Pure numpy + Python — no LLM calls.
+    """
+
+    def __init__(self, document_id: str, vault, n_trials: int = 5000):
+        self.document_id = document_id
+        self.vault = vault
+        self.n_trials = n_trials
+
+    def run(self) -> Dict[str, Any]:
+        # ── 1. Early exit — check temporal data ─────────────────────────────
+        if not self.vault.has_temporal_data(self.document_id):
+            return {"available": False, "reason": "No schedule data found in this document"}
+
+        # ── 2. Load schedule data ────────────────────────────────────────────
+        cursor = self.vault.conn.cursor()
+        cursor.execute(
+            """
+            SELECT tm.node_id, tm.start_date, tm.end_date
+            FROM temporal_metadata tm
+            WHERE tm.node_id IN (
+                SELECT source_id FROM edges WHERE document_id = ?
+                UNION
+                SELECT target_id FROM edges WHERE document_id = ?
+            )
+            """,
+            (self.document_id, self.document_id),
+        )
+        temporal_rows = cursor.fetchall()
+
+        # Parse durations
+        duration_days: Dict[str, int] = {}
+        for row in temporal_rows:
+            try:
+                node_id = row[0]
+                start_raw = row[1]
+                end_raw = row[2]
+            except (IndexError, KeyError):
+                try:
+                    node_id = row["node_id"]
+                    start_raw = row["start_date"]
+                    end_raw = row["end_date"]
+                except (KeyError, TypeError):
+                    continue
+
+            if not start_raw or not end_raw:
+                continue
+
+            try:
+                # Support both date and datetime ISO strings
+                try:
+                    start_dt = datetime.date.fromisoformat(str(start_raw)[:10])
+                    end_dt = datetime.date.fromisoformat(str(end_raw)[:10])
+                except ValueError:
+                    start_dt = datetime.datetime.fromisoformat(str(start_raw)).date()
+                    end_dt = datetime.datetime.fromisoformat(str(end_raw)).date()
+
+                days = (end_dt - start_dt).days
+                duration_days[node_id] = max(1, days)
+            except Exception:
+                continue
+
+        # Load STARTS_AFTER edges
+        cursor2 = self.vault.conn.cursor()
+        cursor2.execute(
+            "SELECT source_id, target_id FROM edges "
+            "WHERE document_id = ? AND relationship = 'STARTS_AFTER'",
+            (self.document_id,),
+        )
+        starts_after_rows = cursor2.fetchall()
+
+        # Build dependency graph: target starts after source
+        # predecessors[node] = list of nodes that must complete before node starts
+        predecessors: Dict[str, List[str]] = {}
+        for row in starts_after_rows:
+            try:
+                src = row[0]
+                tgt = row[1]
+            except (IndexError, KeyError):
+                try:
+                    src = row["source_id"]
+                    tgt = row["target_id"]
+                except (KeyError, TypeError):
+                    continue
+            predecessors.setdefault(tgt, []).append(src)
+
+        # Load chronological friction lines
+        friction_lines = self.vault.get_chronological_friction_lines(self.document_id)
+
+        # Build per-node friction delay map
+        friction_delay: Dict[str, int] = {}
+        for fl in friction_lines:
+            days_at_risk = int(fl.get("days_at_risk", 0))
+            if days_at_risk <= 0:
+                continue
+            for key in ("source_id", "target_id", "node_id"):
+                node_ref = fl.get(key)
+                if node_ref:
+                    friction_delay[node_ref] = friction_delay.get(node_ref, 0) + days_at_risk
+
+        # ── 3. Monte Carlo simulation ────────────────────────────────────────
+        all_nodes = list(duration_days.keys())
+        if not all_nodes:
+            return {"available": False, "reason": "No schedule data found in this document"}
+
+        n = len(all_nodes)
+        node_index = {node_id: i for i, node_id in enumerate(all_nodes)}
+
+        # Pre-compute base durations array
+        base_durations = np.array([duration_days[nid] for nid in all_nodes], dtype=float)
+
+        # Topological BFS order for delay propagation
+        # Build in-degree for nodes that have predecessors among known nodes
+        topo_in_degree: Dict[str, int] = {nid: 0 for nid in all_nodes}
+        adj: Dict[str, List[str]] = {nid: [] for nid in all_nodes}
+        for tgt, preds in predecessors.items():
+            if tgt not in node_index:
+                continue
+            for src in preds:
+                if src not in node_index:
+                    continue
+                topo_in_degree[tgt] = topo_in_degree.get(tgt, 0) + 1
+                adj[src].append(tgt)
+
+        # Kahn's algorithm for topological order
+        topo_queue: deque = deque(
+            nid for nid in all_nodes if topo_in_degree.get(nid, 0) == 0
+        )
+        topo_order: List[str] = []
+        in_deg_copy = dict(topo_in_degree)
+        while topo_queue:
+            node = topo_queue.popleft()
+            topo_order.append(node)
+            for child in adj.get(node, []):
+                in_deg_copy[child] -= 1
+                if in_deg_copy[child] == 0:
+                    topo_queue.append(child)
+        # Any remaining nodes (cycles) appended at end
+        remaining = [nid for nid in all_nodes if nid not in set(topo_order)]
+        topo_order.extend(remaining)
+
+        # Per-node accumulated delay across all trials (for at-risk calculation)
+        node_delay_sum = np.zeros(n, dtype=float)
+
+        trial_max_delays = np.zeros(self.n_trials, dtype=float)
+
+        for t in range(self.n_trials):
+            # Sample variance for each node
+            variances = np.random.normal(0, 0.2 * base_durations)
+            trial_durations = np.maximum(1.0, base_durations + variances)
+
+            # Delay propagation through dependency graph
+            delay = np.zeros(n, dtype=float)
+
+            for nid in topo_order:
+                if nid not in node_index:
+                    continue
+                idx = node_index[nid]
+                # Add excess duration variance as delay contribution
+                excess = trial_durations[idx] - base_durations[idx]
+                if excess > 0:
+                    delay[idx] += excess
+
+                # Add friction delay
+                if nid in friction_delay:
+                    delay[idx] += friction_delay[nid]
+
+                # Propagate to successors
+                for child in adj.get(nid, []):
+                    if child not in node_index:
+                        continue
+                    cidx = node_index[child]
+                    delay[cidx] = max(delay[cidx], delay[idx])
+
+            trial_max_delays[t] = delay.max() if delay.max() > 0 else 0.0
+            node_delay_sum += delay
+
+        # ── 4. Percentiles ───────────────────────────────────────────────────
+        p50 = int(np.percentile(trial_max_delays, 50))
+        p80 = int(np.percentile(trial_max_delays, 80))
+        p95 = int(np.percentile(trial_max_delays, 95))
+
+        # ── 5. At-risk nodes ─────────────────────────────────────────────────
+        mean_delays = node_delay_sum / self.n_trials
+        sorted_indices = np.argsort(mean_delays)[::-1][:10]
+        top_node_ids = [all_nodes[i] for i in sorted_indices if mean_delays[i] > 0]
+
+        at_risk_nodes = []
+        if top_node_ids:
+            placeholders = ",".join("?" * len(top_node_ids))
+            cursor3 = self.vault.conn.cursor()
+            cursor3.execute(
+                f"SELECT id, name FROM nodes WHERE id IN ({placeholders})",
+                top_node_ids,
+            )
+            name_rows = cursor3.fetchall()
+            name_map = {}
+            for row in name_rows:
+                try:
+                    name_map[row[0]] = row[1]
+                except (IndexError, KeyError):
+                    try:
+                        name_map[row["id"]] = row["name"]
+                    except (KeyError, TypeError):
+                        pass
+
+            for nid in top_node_ids:
+                idx = node_index[nid]
+                at_risk_nodes.append({
+                    "id": nid,
+                    "name": name_map.get(nid, nid),
+                    "mean_delay_days": int(mean_delays[idx]),
+                })
+
+        # ── 6. Return ─────────────────────────────────────────────────────────
+        return {
+            "available": True,
+            "p50_delay_days": p50,
+            "p80_delay_days": p80,
+            "p95_delay_days": p95,
+            "at_risk_nodes": at_risk_nodes,
+        }

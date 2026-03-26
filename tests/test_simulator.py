@@ -3,9 +3,10 @@ tests/test_simulator.py — Unit tests for BlastRadiusCalculator and BlackSwanAg
 """
 
 import json
+import numpy
 import pytest
-from unittest.mock import MagicMock, patch
-from core.simulator import BlastRadiusCalculator, BlackSwanAgent
+from unittest.mock import MagicMock, patch, call
+from core.simulator import BlastRadiusCalculator, BlackSwanAgent, MonteCarloForecaster
 
 
 def _make_vault(edges, node_names=None, fragility_lines=None):
@@ -281,3 +282,158 @@ class TestBlackSwanAgent:
                 result = BlackSwanAgent("doc_bs_3", vault).run()
 
             assert result == {"scenarios": []}, f"Failed for input: {bad_content!r}"
+
+
+# ── Helpers for MonteCarloForecaster tests ────────────────────────────────────
+
+def _make_mc_vault(
+    has_temporal=True,
+    temporal_rows=None,
+    starts_after_rows=None,
+    node_name_rows=None,
+    friction_lines=None,
+):
+    """
+    Build a mock vault for MonteCarloForecaster.
+
+    conn.cursor() is called up to 3 times:
+      1st  → temporal_metadata query  (fetchall → temporal_rows)
+      2nd  → STARTS_AFTER edges query (fetchall → starts_after_rows)
+      3rd  → nodes name lookup        (fetchall → node_name_rows)
+    """
+    temporal_rows = temporal_rows or []
+    starts_after_rows = starts_after_rows or []
+    node_name_rows = node_name_rows or []
+    friction_lines = friction_lines or []
+
+    vault = MagicMock()
+    vault.has_temporal_data.return_value = has_temporal
+    vault.get_chronological_friction_lines.return_value = friction_lines
+
+    cursors = []
+    for rows in [temporal_rows, starts_after_rows, node_name_rows]:
+        c = MagicMock()
+        c.fetchall.return_value = rows
+        cursors.append(c)
+
+    # Provide extra cursors beyond the expected 3 in case code asks for more
+    extra = MagicMock()
+    extra.fetchall.return_value = []
+
+    call_count = [0]
+
+    def cursor_factory():
+        idx = call_count[0]
+        call_count[0] += 1
+        if idx < len(cursors):
+            return cursors[idx]
+        return extra
+
+    vault.conn.cursor.side_effect = cursor_factory
+    return vault
+
+
+class TestMonteCarloForecaster:
+
+    def test_returns_unavailable_when_no_temporal_data(self):
+        """vault.has_temporal_data returns False → {"available": False, ...}"""
+        vault = _make_mc_vault(has_temporal=False)
+        result = MonteCarloForecaster("doc_mc_1", vault).run()
+
+        assert result["available"] is False
+        assert "reason" in result
+
+    def test_p50_le_p80_le_p95(self):
+        """With real temporal data mocked, p50 <= p80 <= p95 always holds."""
+        numpy.random.seed(42)
+
+        temporal_rows = [
+            ("node_A", "2025-01-01", "2025-03-01"),   # 59 days
+            ("node_B", "2025-01-15", "2025-04-15"),   # 89 days
+            ("node_C", "2025-02-01", "2025-05-01"),   # 89 days
+        ]
+        node_name_rows = [
+            ("node_A", "Task A"),
+            ("node_B", "Task B"),
+            ("node_C", "Task C"),
+        ]
+
+        vault = _make_mc_vault(
+            has_temporal=True,
+            temporal_rows=temporal_rows,
+            starts_after_rows=[],
+            node_name_rows=node_name_rows,
+            friction_lines=[],
+        )
+
+        result = MonteCarloForecaster("doc_mc_2", vault, n_trials=1000).run()
+
+        assert result["available"] is True
+        assert result["p50_delay_days"] <= result["p80_delay_days"] <= result["p95_delay_days"]
+
+    def test_at_risk_nodes_non_empty_when_delays_exist(self):
+        """Nodes with positive durations and friction → at_risk_nodes not empty."""
+        numpy.random.seed(42)
+
+        temporal_rows = [
+            ("node_X", "2025-01-01", "2025-06-01"),   # 151 days — long task
+            ("node_Y", "2025-01-01", "2025-04-01"),   # 89 days
+        ]
+        # node_X starts after node_Y (dependency chain)
+        starts_after_rows = [
+            ("node_Y", "node_X"),
+        ]
+        node_name_rows = [
+            ("node_X", "Long Task"),
+            ("node_Y", "Prerequisite"),
+        ]
+        friction_lines = [
+            {"source_id": "node_Y", "days_at_risk": 20},
+        ]
+
+        vault = _make_mc_vault(
+            has_temporal=True,
+            temporal_rows=temporal_rows,
+            starts_after_rows=starts_after_rows,
+            node_name_rows=node_name_rows,
+            friction_lines=friction_lines,
+        )
+
+        result = MonteCarloForecaster("doc_mc_3", vault, n_trials=500).run()
+
+        assert result["available"] is True
+        assert len(result["at_risk_nodes"]) > 0
+        # Each at-risk node has the required keys
+        for node in result["at_risk_nodes"]:
+            assert "id" in node
+            assert "name" in node
+            assert "mean_delay_days" in node
+
+    def test_zero_delay_with_no_friction_lines(self):
+        """No friction and tight durations (symmetric variance) → p50 near 0."""
+        numpy.random.seed(42)
+
+        # Very short tasks with no dependencies or friction
+        temporal_rows = [
+            ("node_P", "2025-01-01", "2025-01-02"),   # 1 day
+            ("node_Q", "2025-01-01", "2025-01-02"),   # 1 day
+        ]
+        node_name_rows = [
+            ("node_P", "Tiny Task P"),
+            ("node_Q", "Tiny Task Q"),
+        ]
+
+        vault = _make_mc_vault(
+            has_temporal=True,
+            temporal_rows=temporal_rows,
+            starts_after_rows=[],
+            node_name_rows=node_name_rows,
+            friction_lines=[],
+        )
+
+        result = MonteCarloForecaster("doc_mc_4", vault, n_trials=2000).run()
+
+        assert result["available"] is True
+        # With 1-day tasks and no friction, most delay samples round to 0
+        # p95 should be very small (variance of ±20% of 1 day is tiny)
+        assert result["p95_delay_days"] <= 5
