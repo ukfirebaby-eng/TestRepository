@@ -56,6 +56,16 @@
         #drop-zone.dragover .drag-hint { display: block; }
         #drop-zone.dragover .normal-hint { display: none; }
 
+        /* ── Batch queue ── */
+        #batch-queue-list { display:flex; flex-direction:column; gap:6px; }
+        .batch-item { display:flex; align-items:center; gap:10px; font-size:0.8rem; color:var(--text-secondary); }
+        .batch-item .bi-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .batch-item .bi-status { flex-shrink:0; font-size:0.75rem; }
+        .bi-status.queued  { color: var(--text-secondary); }
+        .bi-status.active  { color: var(--accent-cyan); }
+        .bi-status.completed { color: #4caf50; }
+        .bi-status.failed  { color: #ff3d5a; }
+
         /* ── Telemetry ── */
         #telemetry-console { display: none; text-align: center; }
         .spinner {
@@ -484,7 +494,7 @@
             <h2>Ingest Strategy Document</h2>
             <p class="normal-hint">Drag &amp; Drop a PDF here, or click to browse.</p>
             <p class="drag-hint" style="color:var(--accent-cyan);">Drop to begin ingestion</p>
-            <input type="file" id="file-input" accept="application/pdf" style="display: none;">
+            <input type="file" id="file-input" accept="application/pdf" multiple style="display: none;">
         </div>
 
         <div id="telemetry-console">
@@ -492,6 +502,10 @@
             <h2 id="telemetry-status">Uploading Document...</h2>
             <p id="telemetry-elapsed" style="color:var(--text-secondary);"></p>
             <pre id="telemetry-log"></pre>
+            <div id="batch-queue" style="display:none; margin-top:12px; width:100%; max-width:480px;">
+                <div id="batch-queue-list"></div>
+                <p id="batch-summary" style="display:none; margin-top:8px; color:var(--text-secondary); font-size:0.8rem;"></p>
+            </div>
             <button id="btn-retry" onclick="showOverlay()">&#8635; Start Over</button>
         </div>
 
@@ -505,6 +519,7 @@
         <button class="toolbar-btn" onclick="showOverlay()">&#128196; Documents</button>
         <button class="toolbar-btn" id="report-btn" onclick="toggleDashboard()">&#128202; Report</button>
         <button class="toolbar-btn" id="plain-english-btn" style="display:none" onclick="openPlainEnglishReport()">&#128203; Plain English</button>
+        <button class="toolbar-btn" id="narrative-btn" style="display:none" onclick="openNarrativeReport()">&#128214; Full Narrative</button>
         <div id="toolbar-divider"></div>
         <span id="active-doc-label"></span>
         <span id="friction-badge" style="display:none;"></span>
@@ -580,6 +595,26 @@
       </div>
     </div>
 
+    <div id="narrative-page" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:25;background:#0d1117;overflow-y:auto;display:none;">
+      <div class="rp-body">
+        <div class="rp-header-bar">
+          <div class="rp-title-block">
+            <div class="rp-eyebrow">Full Narrative Report</div>
+            <div class="rp-title">&#128214; Full Narrative Report</div>
+          </div>
+          <div class="rp-actions">
+            <button class="rp-btn danger" onclick="regenerateNarrative()">&#8634; Regenerate</button>
+            <button class="rp-btn" onclick="downloadNarrativePdf()">&#8681; Download PDF</button>
+            <button class="rp-btn" id="np-copy-btn" onclick="copyNarrativeText()">&#128203; Copy</button>
+            <button class="rp-btn" onclick="closeNarrativePage()">&#10005; Close</button>
+          </div>
+        </div>
+        <div id="np-health" class="rp-health" style="display:none;"></div>
+        <div id="np-content"></div>
+        <div id="np-coverage-warning" class="rp-coverage-warning" style="display:none;"></div>
+      </div>
+    </div>
+
     <div id="reporting-dashboard">
         <div class="dashboard-header">
             <h2>&#128202; Executive Intelligence Report</h2>
@@ -638,6 +673,7 @@
         let graphLinks = [];
         let elapsedTimer = null;
         let pollTimeout = null;
+        let batchQueue = [];
 
         // ── Element refs ──
         const dropZone    = document.getElementById('drop-zone');
@@ -744,6 +780,9 @@
             dropZone.style.display = 'block';
             telemetry.style.display = 'none';
             retryBtn.style.display  = 'none';
+            batchQueue = [];
+            document.getElementById('batch-queue').style.display = 'none';
+            document.getElementById('batch-summary').style.display = 'none';
             overlay.style.display   = 'flex';
             loadStoredDocs();
         }
@@ -752,35 +791,150 @@
 
         // ── 2. Upload & polling ──
         dropZone.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', e => { if (e.target.files.length) uploadFile(e.target.files[0]); });
+        fileInput.addEventListener('change', e => {
+            if (e.target.files.length) enqueueBatch(Array.from(e.target.files));
+            fileInput.value = '';
+        });
         dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
         dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('dragover'));
         dropZone.addEventListener('drop', e => {
             e.preventDefault();
             dropZone.classList.remove('dragover');
-            if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+            const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+            if (files.length) enqueueBatch(files);
         });
 
-        async function uploadFile(file) {
+        function enqueueBatch(files) {
+            batchQueue = files.map(f => ({ file: f, status: 'queued', jobId: null, documentId: null }));
             dropZone.style.display  = 'none';
             telemetry.style.display = 'block';
-            statusEl.style.color    = '';
-            statusEl.textContent    = `Uploading ${file.name}…`;
             retryBtn.style.display  = 'none';
+            statusEl.style.color    = '';
+
+            const queueEl   = document.getElementById('batch-queue');
+            const listEl    = document.getElementById('batch-queue-list');
+            const summaryEl = document.getElementById('batch-summary');
+            summaryEl.style.display = 'none';
+            listEl.innerHTML = '';
+
+            if (files.length > 1) {
+                queueEl.style.display = 'block';
+                batchQueue.forEach((item, i) => {
+                    const row = document.createElement('div');
+                    row.className = 'batch-item';
+                    row.id = `bq-item-${i}`;
+                    row.innerHTML = `<span class="bi-name" title="${escHtml(item.file.name)}">${escHtml(truncateFilename(item.file.name, 36))}</span>
+                                     <span class="bi-status queued" id="bq-status-${i}">Queued</span>`;
+                    listEl.appendChild(row);
+                });
+            } else {
+                queueEl.style.display = 'none';
+            }
+            processNextInQueue(0);
+        }
+
+        async function processNextInQueue(index) {
+            if (index >= batchQueue.length) {
+                const total     = batchQueue.length;
+                const failed    = batchQueue.filter(i => i.status === 'failed').length;
+                const succeeded = total - failed;
+                const lastGood  = [...batchQueue].reverse().find(i => i.status === 'completed');
+
+                if (total > 1) {
+                    const summaryEl = document.getElementById('batch-summary');
+                    summaryEl.textContent = `${succeeded} of ${total} file${total !== 1 ? 's' : ''} ingested successfully.`;
+                    summaryEl.style.display = 'block';
+                }
+                stopElapsedTimer();
+
+                if (lastGood) {
+                    await loadStoredDocs();
+                    overlay.style.display = 'none';
+                    loadCanvasData(lastGood.documentId, lastGood.file.name);
+                } else {
+                    statusEl.textContent   = 'All files failed to ingest.';
+                    statusEl.style.color   = '#ff3d5a';
+                    retryBtn.style.display = 'inline-block';
+                }
+                return;
+            }
+
+            const item = batchQueue[index];
+            item.status = 'active';
+            _updateQueueRow(index);
+            statusEl.style.color = '';
+            statusEl.textContent = `Uploading ${truncateFilename(item.file.name, 36)}…` +
+                                   (batchQueue.length > 1 ? ` (${index + 1}/${batchQueue.length})` : '');
             startElapsedTimer();
 
             const formData = new FormData();
-            formData.append('file', file);
+            formData.append('file', item.file);
             try {
                 const res  = await fetch('/api/v1/ingest', { method: 'POST', body: formData });
                 const data = await res.json();
-                pollJobStatus(data.job_id, data.document_id, file.name);
+                item.jobId      = data.job_id;
+                item.documentId = data.document_id;
+                await _awaitJobCompletion(item, index);
             } catch {
+                item.status = 'failed';
+                _updateQueueRow(index);
                 stopElapsedTimer();
-                statusEl.textContent = 'Upload failed — could not reach the server.';
-                statusEl.style.color = '#ff3d5a';
-                retryBtn.style.display = 'inline-block';
             }
+            processNextInQueue(index + 1);
+        }
+
+        function _awaitJobCompletion(item, index) {
+            return new Promise(resolve => {
+                const logEl = document.getElementById('telemetry-log');
+                logEl.textContent = '';
+                let phase = 0;
+                const phases = ['Extracting topology…', 'Building knowledge graph…', 'Hunting contradictions…'];
+                const phaseTimer = setInterval(() => {
+                    phase = (phase + 1) % phases.length;
+                    statusEl.textContent = phases[phase] +
+                        (batchQueue.length > 1 ? ` (${index + 1}/${batchQueue.length})` : '');
+                }, 4000);
+
+                const hardTimeout = setTimeout(() => {
+                    clearInterval(phaseTimer);
+                    clearInterval(interval);
+                    item.status = 'failed';
+                    _updateQueueRow(index);
+                    stopElapsedTimer();
+                    resolve();
+                }, 10 * 60 * 1000);
+
+                const interval = setInterval(async () => {
+                    try {
+                        const res     = await fetch(`/api/v1/status/${item.jobId}`);
+                        const jobData = await res.json();
+                        if (jobData.log?.length) {
+                            logEl.textContent = jobData.log.join('\n');
+                            logEl.scrollTop   = logEl.scrollHeight;
+                        }
+                        if (jobData.status === 'completed') {
+                            clearInterval(interval); clearInterval(phaseTimer); clearTimeout(hardTimeout);
+                            item.status = 'completed';
+                            _updateQueueRow(index);
+                            await loadStoredDocs();
+                            resolve();
+                        } else if (jobData.status === 'failed') {
+                            clearInterval(interval); clearInterval(phaseTimer); clearTimeout(hardTimeout);
+                            item.status = 'failed';
+                            _updateQueueRow(index);
+                            resolve();
+                        }
+                    } catch { /* transient network blip */ }
+                }, 1000);
+            });
+        }
+
+        function _updateQueueRow(index) {
+            const el = document.getElementById(`bq-status-${index}`);
+            if (!el) return;
+            const labels = { queued: 'Queued', active: 'Processing…', completed: 'Done ✓', failed: 'Failed' };
+            el.className   = `bi-status ${batchQueue[index].status}`;
+            el.textContent = labels[batchQueue[index].status] ?? batchQueue[index].status;
         }
 
         function startElapsedTimer() {
@@ -995,6 +1149,7 @@
                 // Show Report button and pre-load dashboard data
                 document.getElementById('report-btn').style.display = 'inline-block';
                 document.getElementById('plain-english-btn').style.display = 'inline-block';
+                document.getElementById('narrative-btn').style.display = 'inline-block';
                 loadReportingDashboard(documentId);
 
             } catch(e) {
@@ -1648,6 +1803,163 @@
 
         function absoluteToRelMonth(isoDate) {
             return isoToEpochMonth(isoDate) - projectEpochMonth;
+        }
+
+        // ── Narrative Report ──
+        let _currentNarrativeDocumentId = null;
+        let _currentNarrativeReport = null;
+
+        async function openNarrativeReport() {
+            const documentId = activeDocumentId;
+            if (!documentId) return;
+            _currentNarrativeDocumentId = documentId;
+
+            // Check cache first
+            try {
+                const res = await fetch(`/api/v1/reports/narrative/${documentId}`);
+                const data = await res.json();
+                if (data.cached) {
+                    _currentNarrativeReport = data.report;
+                    renderNarrativePage(data.report);
+                    return;
+                }
+            } catch (e) {
+                console.error('Failed to check narrative cache:', e);
+            }
+
+            // Not cached — stream generation
+            dropZone.style.display  = 'none';
+            telemetry.style.display = 'block';
+            retryBtn.style.display  = 'none';
+            statusEl.style.color    = '';
+            statusEl.textContent    = 'Generating full narrative report...';
+            overlay.style.display   = 'flex';
+
+            try {
+                const response = await fetch(`/api/v1/reports/narrative/${documentId}`, { method: 'POST' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                const processLines = (text) => {
+                    const lines = text.split('\n');
+                    for (const line of lines) {
+                        if (!line.startsWith('data:')) continue;
+                        try {
+                            const event = JSON.parse(line.slice(5).trim());
+                            if (event.stage === 'complete') {
+                                _currentNarrativeReport = event.report;
+                                overlay.style.display = 'none';
+                                renderNarrativePage(event.report);
+                            } else if (event.message) {
+                                statusEl.textContent = event.message;
+                            }
+                        } catch (_) {}
+                    }
+                };
+
+                let reportReceived = false;
+                const trackingProcessLines = (text) => {
+                    if (text.includes('"complete"')) reportReceived = true;
+                    processLines(text);
+                };
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        buffer += decoder.decode();
+                        trackingProcessLines(buffer);
+                        break;
+                    }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+                    trackingProcessLines(lines.join('\n'));
+                }
+
+                if (!reportReceived) {
+                    overlay.style.display = 'none';
+                    showToast('Narrative generation failed — check server logs for details.', 'error');
+                }
+            } catch (e) {
+                overlay.style.display = 'none';
+                console.error('Narrative generation failed:', e);
+                showToast('Narrative generation failed. Please try again.', 'error');
+            }
+        }
+
+        function renderNarrativePage(report) {
+            overlay.style.display = 'none';
+            const page = document.getElementById('narrative-page');
+            page.style.display = 'block';
+
+            // Health banner
+            const healthEl = document.getElementById('np-health');
+            const assessment = (report.overall_assessment || '').toLowerCase().replace(/\s+/g, '-');
+            const healthIcon = assessment.includes('critical') ? '🚨' : assessment.includes('high') ? '⚠️' : assessment.includes('moderate') ? '⚠️' : '✅';
+            healthEl.className = `rp-health ${assessment.split('-')[0]}`;
+            healthEl.innerHTML = `<div class="rp-health-icon">${healthIcon}</div><div><div class="rp-health-label">Overall Assessment: ${escHtml(report.overall_assessment || '')}</div></div>`;
+            healthEl.style.display = '';
+
+            // Coverage warning
+            const coverageEl = document.getElementById('np-coverage-warning');
+            if (report.coverage_warning) {
+                coverageEl.textContent = report.coverage_warning;
+                coverageEl.style.display = '';
+            } else {
+                coverageEl.style.display = 'none';
+            }
+
+            // Chapters
+            const content = document.getElementById('np-content');
+            content.innerHTML = '';
+            (report.chapters || []).forEach(chapter => {
+                const section = document.createElement('section');
+                section.className = 'np-chapter';
+                const h3 = document.createElement('h3');
+                h3.textContent = chapter.title || '';
+                const p = document.createElement('p');
+                p.textContent = chapter.narrative || '';
+                section.appendChild(h3);
+                section.appendChild(p);
+                content.appendChild(section);
+            });
+        }
+
+        function closeNarrativePage() {
+            document.getElementById('narrative-page').style.display = 'none';
+        }
+
+        async function regenerateNarrative() {
+            const documentId = _currentNarrativeDocumentId;
+            if (!documentId) return;
+            closeNarrativePage();
+            await fetch(`/api/v1/reports/narrative/${documentId}`, { method: 'DELETE' });
+            await openNarrativeReport();
+        }
+
+        function downloadNarrativePdf() {
+            window.print();
+        }
+
+        async function copyNarrativeText() {
+            const report = _currentNarrativeReport;
+            if (!report) return;
+            let text = 'FULL NARRATIVE REPORT\n' + '='.repeat(40) + '\n\n';
+            if (report.overall_assessment) text += `Overall Assessment: ${report.overall_assessment}\n\n`;
+            (report.chapters || []).forEach(chapter => {
+                text += `${chapter.title || ''}\n${'-'.repeat(30)}\n${chapter.narrative || ''}\n\n`;
+            });
+            if (report.coverage_warning) text += `\nNote: ${report.coverage_warning}\n`;
+            try {
+                await navigator.clipboard.writeText(text);
+                const btn = document.getElementById('np-copy-btn');
+                btn.textContent = '✓ Copied';
+                setTimeout(() => { btn.textContent = '📋 Copy'; }, 2000);
+            } catch (e) {
+                showToast('Copy failed — please select and copy manually.');
+            }
         }
     </script>
 </body>
