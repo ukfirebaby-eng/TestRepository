@@ -169,6 +169,15 @@ class HybridVault:
             )
         """)
 
+        # Risk Simulations Cache — persists Monte Carlo / risk simulation results
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS risk_simulations (
+                document_id  TEXT PRIMARY KEY,
+                generated_at TEXT NOT NULL,
+                result_json  TEXT NOT NULL
+            )
+        """)
+
         self.conn.commit()
 
     def insert_document_chunk(self, chunk_id: str, document_id: str, text: str, page: int, bbox: Tuple[float, float, float, float]) -> None:
@@ -346,6 +355,7 @@ class HybridVault:
             cursor.execute("DELETE FROM edges WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM executive_summaries WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM narrative_reports WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM risk_simulations WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM documents WHERE id = ?", (document_id,))
 
         # ChromaDB 0.4.22 raises when collection.delete() matches zero documents.
@@ -698,3 +708,46 @@ class HybridVault:
                 (document_id,)
             )
             self.conn.commit()
+
+    def save_risk_simulation(self, document_id: str, result: dict) -> None:
+        """Writes or overwrites the cached risk simulation result for a document."""
+        generated_at = datetime.utcnow().isoformat()
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO risk_simulations (document_id, generated_at, result_json) VALUES (?, ?, ?)",
+                (document_id, generated_at, json.dumps(result))
+            )
+            self.conn.commit()
+
+    def get_risk_simulation(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """Returns the cached risk simulation result for a document, or None if not yet generated."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT result_json FROM risk_simulations WHERE document_id = ?",
+            (document_id,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return json.loads(row["result_json"])
+
+    def delete_risk_simulation(self, document_id: str) -> None:
+        """Removes the cached risk simulation for a document. Safe to call even if no cache exists."""
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "DELETE FROM risk_simulations WHERE document_id = ?",
+                (document_id,)
+            )
+            self.conn.commit()
+
+    def has_temporal_data(self, document_id: str) -> bool:
+        """Returns True if any nodes in this document's edges have temporal metadata."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM temporal_metadata WHERE node_id IN (SELECT source_id FROM edges WHERE document_id = ?)",
+            (document_id,)
+        )
+        row = cursor.fetchone()
+        return row[0] > 0
