@@ -72,6 +72,18 @@ class BlastRadiusCalculator:
         # ── 4 & 5. BFS + SVI per hub node ───────────────────────────────────
         hub_results = []
 
+        # Batch-fetch all hub node names in a single query (avoids N+1 round-trips)
+        if hub_nodes:
+            placeholders = ",".join("?" * len(hub_nodes))
+            cursor = self.vault.conn.cursor()
+            cursor.execute(
+                f"SELECT id, name FROM nodes WHERE id IN ({placeholders})",
+                list(hub_nodes)
+            )
+            node_name_map = {row[0]: row[1] for row in cursor.fetchall()}
+        else:
+            node_name_map = {}
+
         for hub in hub_nodes:
             # BFS on reverse_graph from hub: who would be affected if hub fails?
             visited: set = set()
@@ -101,17 +113,8 @@ class BlastRadiusCalculator:
                     in_degree[hub] / max_in_degree
                 )
 
-            # Node name lookup
-            cur2 = self.vault.conn.cursor()
-            cur2.execute("SELECT name FROM nodes WHERE id = ?", (hub,))
-            name_row = cur2.fetchone()
-            if name_row:
-                try:
-                    node_name = name_row["name"]
-                except (KeyError, TypeError):
-                    node_name = name_row[0]
-            else:
-                node_name = hub
+            # Node name lookup (resolved from pre-fetched batch map)
+            node_name = node_name_map.get(hub, hub)
 
             # newly_detected: any reachable node NOT in pre-computed cascade set
             newly_detected = any(n not in precomputed_cascade for n in reachable)
