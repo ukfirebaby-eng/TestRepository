@@ -539,8 +539,8 @@ class KDECoverageCheck:
             ids=source_chunk_ids,
             include=["embeddings"]
         )
-        source_embeddings = chroma_result.get("embeddings") or []
-        if not source_embeddings:
+        source_embeddings = chroma_result.get("embeddings")
+        if source_embeddings is None or len(source_embeddings) == 0:
             report["coverage_verified"] = True
             report["coverage_warning"] = None
             return report
@@ -592,3 +592,85 @@ class KDECoverageCheck:
             report["coverage_warning"] = None
 
         return report
+
+
+class OutlineAgent:
+    """
+    Groups raw issues into thematic chapters for multi-pass narrative drafting.
+    Returns List[{"title": str, "indices": List[int]}] where indices reference
+    the flat issue list: friction_lines + chronological_friction_lines + hub_vulnerabilities.
+    Temperature 0.0 for deterministic grouping. Model: fast tier.
+    """
+
+    SYSTEM_PROMPT = """You are a Risk Report Architect. You will be given a numbered list of project issues.
+
+Your task: group these issues into 3–6 thematic chapters that will form sections of an executive report.
+
+RULES:
+1. Every issue index must appear in exactly one chapter — no omissions, no duplicates.
+2. Aim for 3–6 groups. If there are very few issues, fewer groups are acceptable.
+3. Group by theme (e.g. schedule conflicts, resource dependencies, governance gaps).
+4. Return ONLY a JSON array matching this schema — no markdown, no preamble:
+
+[
+  {"title": "Chapter Title", "indices": [0, 3, 5]},
+  {"title": "Another Chapter", "indices": [1, 2, 4]}
+]"""
+
+    def run(self, raw_issues: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Groups issues into thematic chapters.
+        Returns [] immediately if all issue lists are empty (no LLM call).
+        On JSON parse error, returns a single fallback chapter with all indices.
+        """
+        friction = raw_issues.get("friction_lines", [])
+        chrono = raw_issues.get("chronological_friction_lines", [])
+        hubs = raw_issues.get("hub_vulnerabilities", [])
+
+        all_issues = friction + chrono + hubs
+
+        if not all_issues:
+            return []
+
+        # Build numbered list for the prompt
+        issue_lines = []
+        for idx, issue in enumerate(all_issues):
+            severity = issue.get("severity", "?")
+            source = issue.get("source", issue.get("hub_node", "?"))
+            target = issue.get("target", "")
+            diamond = issue.get("diamond", issue.get("insight", issue.get("label", "")))
+            if target:
+                issue_lines.append(f"[{idx}] {diamond} (severity: {severity}) — {source} → {target}")
+            else:
+                issue_lines.append(f"[{idx}] {diamond} (severity: {severity}) — {source}")
+
+        user_prompt = (
+            "Here are the project issues to group into thematic chapters:\n\n"
+            + "\n".join(issue_lines)
+            + "\n\nReturn a JSON array of chapter objects with 'title' and 'indices' keys."
+        )
+
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=_get_model("fast"),
+            temperature=0.0,
+            messages=[
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        content = response.choices[0].message.content
+
+        # Strip markdown code fences if present
+        stripped = content.strip()
+        if stripped.startswith("```"):
+            fence_lines = stripped.split("\n")
+            inner = fence_lines[1:-1] if fence_lines[-1].strip().startswith("```") else fence_lines[1:]
+            stripped = "\n".join(inner).strip()
+
+        try:
+            outline = json.loads(stripped)
+            return outline
+        except (json.JSONDecodeError, ValueError):
+            # Fallback: single chapter containing all indices
+            return [{"title": "All Issues", "indices": list(range(len(all_issues)))}]
