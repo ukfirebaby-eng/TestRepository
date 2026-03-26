@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from datetime import datetime
 from openai import OpenAI
@@ -662,15 +663,24 @@ RULES:
         content = response.choices[0].message.content
 
         # Strip markdown code fences if present
-        stripped = content.strip()
-        if stripped.startswith("```"):
-            fence_lines = stripped.split("\n")
-            inner = fence_lines[1:-1] if fence_lines[-1].strip().startswith("```") else fence_lines[1:]
-            stripped = "\n".join(inner).strip()
+        stripped = re.sub(r"^```[^\n]*\n?|```$", "", content, flags=re.MULTILINE).strip()
 
         try:
             outline = json.loads(stripped)
-            return outline
         except (json.JSONDecodeError, ValueError):
             # Fallback: single chapter containing all indices
             return [{"title": "All Issues", "indices": list(range(len(all_issues)))}]
+
+        # Post-parse index validation
+        n = len(all_issues)
+        validated = []
+        for chapter in outline:
+            seen = set()
+            clean_indices = []
+            for idx in chapter.get("indices", []):
+                if 0 <= idx < n and idx not in seen:
+                    seen.add(idx)
+                    clean_indices.append(idx)
+            if clean_indices:
+                validated.append({"title": chapter.get("title", ""), "indices": clean_indices})
+        return validated
