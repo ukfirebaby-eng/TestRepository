@@ -684,3 +684,107 @@ RULES:
             if clean_indices:
                 validated.append({"title": chapter.get("title", ""), "indices": clean_indices})
         return validated
+
+
+class RecursiveDraftingAgent:
+    """
+    Drafts long-form prose narratives for individual report chapters.
+    Accepts raw_issues at construction time to resolve issue indices.
+    Temperature 0.7 for natural prose. Model: smart tier.
+    """
+
+    def __init__(self, raw_issues: Dict[str, Any]):
+        friction = raw_issues.get("friction_lines", [])
+        chrono = raw_issues.get("chronological_friction_lines", [])
+        hubs = raw_issues.get("hub_vulnerabilities", [])
+        self._flat_issues: List[Dict[str, Any]] = friction + chrono + hubs
+
+    def run(self, chapter: Dict[str, Any], rolling_context: str = "") -> Dict[str, Any]:
+        """
+        Drafts a prose narrative for one chapter.
+        Returns {"title": str, "narrative": str, "indices": List[int]}.
+        """
+        title = chapter["title"]
+        indices = chapter["indices"]
+
+        issue_lines: List[str] = []
+        for idx in indices:
+            if 0 <= idx < len(self._flat_issues):
+                issue = self._flat_issues[idx]
+                severity = issue.get("severity", "?")
+                description = issue.get("diamond", issue.get("insight", issue.get("label", str(issue))))
+                prefix = "MUST INCLUDE: " if isinstance(severity, int) and severity >= 5 else ""
+                issue_lines.append(f"- {prefix}{description} (severity: {severity})")
+
+        issues_block = "\n".join(issue_lines) if issue_lines else "(no issues)"
+
+        context_block = ""
+        if rolling_context:
+            context_block = f"\nPreviously covered:\n{rolling_context}\n"
+
+        user_prompt = (
+            f"Chapter title: {title}\n"
+            f"{context_block}"
+            f"\nIssues in this chapter:\n{issues_block}\n\n"
+            "Write a cohesive, long-form prose narrative (not a bullet list) for this chapter. "
+            "Address each issue in depth. Return plain text only — no JSON, no markdown headings."
+        )
+
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=_get_model("smart"),
+            temperature=0.7,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an Executive Risk Writer. "
+                        "Write clear, authoritative prose narratives for risk report chapters. "
+                        "Do not use bullet points. Do not return JSON. Plain prose only."
+                    ),
+                },
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        narrative = response.choices[0].message.content
+        return {"title": title, "narrative": narrative, "indices": indices}
+
+    def revise(self, chapter: Dict[str, Any], gaps: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Rewrites a chapter to address the listed gaps from the Critic.
+        Returns {"title": str, "narrative": str, "indices": List[int]}.
+        """
+        title = chapter["title"]
+        indices = chapter["indices"]
+        existing_narrative = chapter.get("narrative", "")
+
+        gaps_text = "\n".join(
+            f"- {g.get('diamond', str(g))}" for g in gaps
+        )
+
+        user_prompt = (
+            f"Chapter title: {title}\n\n"
+            f"Existing narrative:\n{existing_narrative}\n\n"
+            f"The following gaps were identified and must be addressed:\n{gaps_text}\n\n"
+            "Rewrite the chapter as cohesive long-form prose that addresses all the gaps above. "
+            "Return plain text only — no JSON, no markdown headings."
+        )
+
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=_get_model("smart"),
+            temperature=0.7,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an Executive Risk Writer. "
+                        "Revise risk report chapters to address identified gaps. "
+                        "Plain prose only — no bullet points, no JSON."
+                    ),
+                },
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        narrative = response.choices[0].message.content
+        return {"title": title, "narrative": narrative, "indices": indices}

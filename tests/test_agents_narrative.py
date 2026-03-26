@@ -125,3 +125,108 @@ class TestOutlineAgent:
 
         assert result == []
         mock_client.chat.completions.create.assert_not_called()
+
+
+# ── TestRecursiveDraftingAgent ────────────────────────────────────────────────
+
+class TestRecursiveDraftingAgent:
+
+    def _make_agent(self, raw_issues=None):
+        from core.agents import RecursiveDraftingAgent
+        if raw_issues is None:
+            raw_issues = _raw_issues_with_many()
+        return RecursiveDraftingAgent(raw_issues)
+
+    def test_returns_chapter_dict(self):
+        """run() returns a dict with 'narrative', 'title', and 'indices' keys."""
+        agent = self._make_agent()
+        chapter = {"title": "Structural Conflicts", "indices": [0, 1, 2]}
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_openai_response(
+            "This chapter discusses the structural conflicts in the programme."
+        )
+
+        with patch("core.agents._get_client", return_value=mock_client):
+            result = agent.run(chapter, rolling_context="")
+
+        assert isinstance(result, dict)
+        assert "narrative" in result
+        assert "title" in result
+        assert "indices" in result
+        assert result["title"] == "Structural Conflicts"
+        assert result["indices"] == [0, 1, 2]
+        assert isinstance(result["narrative"], str)
+        assert len(result["narrative"]) > 0
+
+    def test_rolling_context_passed(self):
+        """rolling_context text appears in the LLM call arguments."""
+        agent = self._make_agent()
+        chapter = {"title": "Schedule Clashes", "indices": [3, 4]}
+        rolling_context = "Chapter 1 — Structural Conflicts: covered node_a vs node_b conflict."
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_openai_response(
+            "Schedule clashes narrative text."
+        )
+
+        with patch("core.agents._get_client", return_value=mock_client):
+            agent.run(chapter, rolling_context=rolling_context)
+
+        call_args = mock_client.chat.completions.create.call_args
+        # Extract the messages from the call kwargs
+        messages = call_args.kwargs.get("messages") or call_args.args[0] if call_args.args else call_args.kwargs["messages"]
+        # Flatten all message content into one string for easy assertion
+        all_content = " ".join(m["content"] for m in messages)
+        assert rolling_context in all_content, (
+            "rolling_context string should appear verbatim in the LLM prompt"
+        )
+
+    def test_hard_stop_injection(self):
+        """Issues with severity >= 5 have 'MUST INCLUDE' prepended in the prompt."""
+        agent = self._make_agent()
+        # Index 0 is friction_lines[0]: severity=5 — triggers hard stop
+        chapter = {"title": "Critical Issues", "indices": [0, 1]}
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_openai_response(
+            "Critical issues narrative."
+        )
+
+        with patch("core.agents._get_client", return_value=mock_client):
+            agent.run(chapter, rolling_context="")
+
+        call_args = mock_client.chat.completions.create.call_args
+        messages = call_args.kwargs.get("messages") or call_args.kwargs["messages"]
+        all_content = " ".join(m["content"] for m in messages)
+        assert "MUST INCLUDE" in all_content, (
+            "Issues with severity >= 5 must have 'MUST INCLUDE' in the prompt"
+        )
+
+    def test_revise_updates_narrative(self):
+        """revise() returns a dict with 'narrative' that differs from the original."""
+        agent = self._make_agent()
+        original_chapter = {
+            "title": "Hub Vulnerabilities",
+            "indices": [5, 6, 7],
+            "narrative": "Original narrative text about hub vulnerabilities.",
+        }
+        gaps = [{"diamond": "Missing issue: hub_3 cascade risk not addressed"}]
+
+        revised_narrative = "Revised narrative that now addresses the hub_3 cascade risk in full detail."
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_openai_response(revised_narrative)
+
+        with patch("core.agents._get_client", return_value=mock_client):
+            result = agent.revise(original_chapter, gaps)
+
+        assert isinstance(result, dict)
+        assert "narrative" in result
+        assert "title" in result
+        assert "indices" in result
+        assert result["title"] == "Hub Vulnerabilities"
+        assert result["indices"] == [5, 6, 7]
+        assert result["narrative"] == revised_narrative
+        assert result["narrative"] != original_chapter["narrative"], (
+            "revise() should return an updated narrative different from the original"
+        )
