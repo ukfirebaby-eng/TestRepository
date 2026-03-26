@@ -159,6 +159,16 @@ class HybridVault:
             )
         """)
 
+        # Narrative Reports Cache — persists full narrative analysis reports
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS narrative_reports (
+                document_id  TEXT PRIMARY KEY,
+                generated_at TEXT NOT NULL,
+                model        TEXT NOT NULL,
+                report_json  TEXT NOT NULL
+            )
+        """)
+
         self.conn.commit()
 
     def insert_document_chunk(self, chunk_id: str, document_id: str, text: str, page: int, bbox: Tuple[float, float, float, float]) -> None:
@@ -335,6 +345,7 @@ class HybridVault:
             """, (document_id, document_id))
             cursor.execute("DELETE FROM edges WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM executive_summaries WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM narrative_reports WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM documents WHERE id = ?", (document_id,))
 
         # ChromaDB 0.4.22 raises when collection.delete() matches zero documents.
@@ -654,3 +665,36 @@ class HybridVault:
             WHERE document_id = ?
         """, (document_id, document_id))
         return [dict(row) for row in cursor.fetchall()]
+
+    def save_narrative_report(self, document_id: str, report: dict, model: str) -> None:
+        """Writes or overwrites the cached narrative report for a document."""
+        generated_at = datetime.utcnow().isoformat()
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO narrative_reports (document_id, generated_at, model, report_json) VALUES (?, ?, ?, ?)",
+                (document_id, generated_at, model, json.dumps(report))
+            )
+            self.conn.commit()
+
+    def get_narrative_report(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """Returns the cached narrative report for a document, or None if not yet generated."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT report_json FROM narrative_reports WHERE document_id = ?",
+            (document_id,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return json.loads(row["report_json"])
+
+    def delete_narrative_report(self, document_id: str) -> None:
+        """Removes the cached narrative report for a document. Safe to call even if no cache exists."""
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "DELETE FROM narrative_reports WHERE document_id = ?",
+                (document_id,)
+            )
+            self.conn.commit()
