@@ -520,6 +520,7 @@
         <button class="toolbar-btn" id="report-btn" onclick="toggleDashboard()">&#128202; Report</button>
         <button class="toolbar-btn" id="plain-english-btn" style="display:none" onclick="openPlainEnglishReport()">&#128203; Plain English</button>
         <button class="toolbar-btn" id="narrative-btn" style="display:none" onclick="openNarrativeReport()">&#128214; Full Narrative</button>
+        <button class="toolbar-btn" id="sim-btn" style="display:none" onclick="openRiskSimulator()">&#127919; Risk Simulator</button>
         <div id="toolbar-divider"></div>
         <span id="active-doc-label"></span>
         <span id="friction-badge" style="display:none;"></span>
@@ -612,6 +613,38 @@
         <div id="np-health" class="rp-health" style="display:none;"></div>
         <div id="np-content"></div>
         <div id="np-coverage-warning" class="rp-coverage-warning" style="display:none;"></div>
+      </div>
+    </div>
+
+    <div id="sim-page" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:25;background:#0d1117;overflow-y:auto;display:none;">
+      <div class="rp-body">
+        <div class="rp-header-bar">
+          <div class="rp-title-block">
+            <div class="rp-eyebrow">Risk Simulator</div>
+            <div class="rp-title">&#127919; Risk Simulator</div>
+          </div>
+          <div class="rp-actions">
+            <button class="rp-btn danger" onclick="regenerateSim()">&#8634; Regenerate</button>
+            <button class="rp-btn" id="sim-copy-btn" onclick="copySimText()">&#128203; Copy</button>
+            <button class="rp-btn" onclick="closeSimPage()">&#10005; Close</button>
+          </div>
+        </div>
+        <div id="sim-blast">
+          <h2>&#128165; Blast Radius Analysis</h2>
+          <div id="sim-svi"></div>
+          <table id="sim-blast-table">
+            <thead><tr><th>Node</th><th>Cascade Depth</th><th>Blast Radius</th><th>SVI Contribution</th></tr></thead>
+            <tbody id="sim-blast-body"></tbody>
+          </table>
+        </div>
+        <div id="sim-black-swan">
+          <h2>&#129442; Black Swan Scenarios</h2>
+          <div id="sim-scenarios"></div>
+        </div>
+        <div id="sim-forecast">
+          <h2>&#128197; Schedule Forecasting</h2>
+          <div id="sim-forecast-content"></div>
+        </div>
       </div>
     </div>
 
@@ -1150,6 +1183,7 @@
                 document.getElementById('report-btn').style.display = 'inline-block';
                 document.getElementById('plain-english-btn').style.display = 'inline-block';
                 document.getElementById('narrative-btn').style.display = 'inline-block';
+                document.getElementById('sim-btn').style.display = 'inline-block';
                 loadReportingDashboard(documentId);
 
             } catch(e) {
@@ -1956,6 +1990,301 @@
             } catch (e) {
                 showToast('Copy failed — please select and copy manually.');
             }
+        }
+
+        // ── Risk Simulator ──
+        let _currentSimDocumentId = null;
+        let _currentSimResult = null;
+
+        async function openRiskSimulator() {
+            const documentId = activeDocumentId;
+            if (!documentId) return;
+            _currentSimDocumentId = documentId;
+
+            // Check cache first
+            try {
+                const res = await fetch(`/api/v1/reports/risk-simulation/${documentId}`);
+                const data = await res.json();
+                if (data.cached) {
+                    _currentSimResult = data.result;
+                    renderSimPage(data.result);
+                    return;
+                }
+            } catch (e) {
+                console.error('Failed to check risk simulation cache:', e);
+            }
+
+            // Not cached — stream generation
+            dropZone.style.display  = 'none';
+            telemetry.style.display = 'block';
+            retryBtn.style.display  = 'none';
+            statusEl.style.color    = '';
+            statusEl.textContent    = 'Generating risk simulation...';
+            overlay.style.display   = 'flex';
+
+            try {
+                const response = await fetch(`/api/v1/reports/risk-simulation/${documentId}`, { method: 'POST' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                let resultReceived = false;
+                const processLines = (text) => {
+                    const lines = text.split(/\r\n|\r|\n/);
+                    for (const line of lines) {
+                        if (!line.startsWith('data:')) continue;
+                        try {
+                            const event = JSON.parse(line.slice(5).trim());
+                            if (event.stage === 'complete' && event.result) {
+                                _currentSimResult = event.result;
+                                resultReceived = true;
+                                overlay.style.display = 'none';
+                                renderSimPage(event.result);
+                            } else if (event.stage === 'blast_radius' || event.stage === 'black_swan' || event.stage === 'monte_carlo') {
+                                if (event.message) statusEl.textContent = event.message;
+                            } else if (event.message) {
+                                statusEl.textContent = event.message;
+                            }
+                        } catch (_) {}
+                    }
+                };
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        buffer += decoder.decode();
+                        processLines(buffer);
+                        break;
+                    }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split(/\r\n|\r|\n/);
+                    buffer = lines.pop();
+                    processLines(lines.join('\n'));
+                }
+
+                if (!resultReceived) {
+                    overlay.style.display = 'none';
+                    showToast('Risk simulation failed — check server logs for details.', 'error');
+                }
+            } catch (e) {
+                overlay.style.display = 'none';
+                console.error('Risk simulation failed:', e);
+                showToast('Risk simulation failed. Please try again.', 'error');
+            }
+        }
+
+        function renderSimPage(result) {
+            overlay.style.display = 'none';
+            const page = document.getElementById('sim-page');
+            page.style.display = 'block';
+
+            // Blast Radius section
+            const sviEl = document.getElementById('sim-svi');
+            const blastBody = document.getElementById('sim-blast-body');
+            const blastSection = result && result.blast_radius;
+            if (blastSection) {
+                const sviScore = blastSection.total_svi_score;
+                sviEl.textContent = sviScore != null ? `Total SVI Score: ${sviScore}` : 'No SVI score available.';
+                blastBody.innerHTML = '';
+                const nodes = blastSection.hub_nodes || [];
+                if (nodes.length === 0) {
+                    const row = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.colSpan = 4;
+                    td.textContent = 'No hub nodes detected.';
+                    row.appendChild(td);
+                    blastBody.appendChild(row);
+                } else {
+                    nodes.forEach(node => {
+                        const row = document.createElement('tr');
+                        const tdName = document.createElement('td');
+                        tdName.textContent = node.node || '';
+                        if (node.newly_detected) {
+                            const badge = document.createElement('span');
+                            badge.textContent = ' ★';
+                            badge.title = 'Newly detected';
+                            badge.style.cssText = 'color:#f0b429;font-size:0.8em;';
+                            tdName.appendChild(badge);
+                        }
+                        const tdDepth = document.createElement('td');
+                        tdDepth.textContent = node.cascade_depth != null ? node.cascade_depth : '';
+                        const tdRadius = document.createElement('td');
+                        tdRadius.textContent = node.blast_radius != null ? node.blast_radius : '';
+                        const tdSvi = document.createElement('td');
+                        tdSvi.textContent = node.svi_contribution != null ? node.svi_contribution : '';
+                        row.appendChild(tdName);
+                        row.appendChild(tdDepth);
+                        row.appendChild(tdRadius);
+                        row.appendChild(tdSvi);
+                        blastBody.appendChild(row);
+                    });
+                }
+            } else {
+                sviEl.textContent = 'No data';
+                blastBody.innerHTML = '';
+            }
+
+            // Black Swan section
+            const scenariosEl = document.getElementById('sim-scenarios');
+            scenariosEl.innerHTML = '';
+            const scenarios = (result && result.black_swan && result.black_swan.scenarios) || [];
+            if (scenarios.length === 0) {
+                const p = document.createElement('p');
+                p.textContent = 'No data';
+                scenariosEl.appendChild(p);
+            } else {
+                scenarios.forEach(s => {
+                    const card = document.createElement('div');
+                    card.style.cssText = 'border:1px solid #30363d;border-radius:8px;padding:1rem;margin-bottom:1rem;';
+                    const title = document.createElement('h3');
+                    title.textContent = s.title || '';
+                    card.appendChild(title);
+                    const trigger = document.createElement('p');
+                    trigger.textContent = `Trigger node: ${s.trigger_node || ''}`;
+                    card.appendChild(trigger);
+                    const cascade = document.createElement('p');
+                    cascade.textContent = `Cascade path: ${(s.cascade_path || []).join(', ')}`;
+                    card.appendChild(cascade);
+                    const radius = document.createElement('p');
+                    radius.textContent = `Impact radius: ${s.impact_radius != null ? s.impact_radius : ''}`;
+                    card.appendChild(radius);
+                    const mitigation = document.createElement('p');
+                    mitigation.textContent = `Mitigation: ${s.mitigation || ''}`;
+                    card.appendChild(mitigation);
+                    scenariosEl.appendChild(card);
+                });
+            }
+
+            // Forecast section
+            const forecastEl = document.getElementById('sim-forecast-content');
+            forecastEl.innerHTML = '';
+            const mc = result && result.monte_carlo;
+            if (!mc) {
+                const p = document.createElement('p');
+                p.textContent = 'No data';
+                forecastEl.appendChild(p);
+            } else if (mc.available === false) {
+                const p = document.createElement('p');
+                p.textContent = mc.reason || 'Monte Carlo simulation unavailable.';
+                forecastEl.appendChild(p);
+            } else {
+                // P50/P80/P95 bars
+                const percentiles = [
+                    { label: 'P50', value: mc.p50_delay },
+                    { label: 'P80', value: mc.p80_delay },
+                    { label: 'P95', value: mc.p95_delay }
+                ];
+                const maxVal = Math.max(...percentiles.map(p => p.value || 0), 1);
+                percentiles.forEach(pct => {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;';
+                    const lbl = document.createElement('span');
+                    lbl.textContent = pct.label;
+                    lbl.style.cssText = 'width:3rem;font-weight:600;color:#8b949e;';
+                    const barWrap = document.createElement('div');
+                    barWrap.style.cssText = 'flex:1;background:#21262d;border-radius:4px;height:1.2rem;overflow:hidden;';
+                    const bar = document.createElement('div');
+                    const pct_width = Math.round(((pct.value || 0) / maxVal) * 100);
+                    bar.style.cssText = `width:${pct_width}%;background:#388bfd;height:100%;border-radius:4px;`;
+                    barWrap.appendChild(bar);
+                    const val = document.createElement('span');
+                    val.textContent = `${pct.value != null ? pct.value : '—'} days`;
+                    val.style.cssText = 'width:6rem;text-align:right;color:#e6edf3;';
+                    row.appendChild(lbl);
+                    row.appendChild(barWrap);
+                    row.appendChild(val);
+                    forecastEl.appendChild(row);
+                });
+                // At-risk nodes table
+                const atRisk = mc.at_risk_nodes || [];
+                if (atRisk.length > 0) {
+                    const tbl = document.createElement('table');
+                    tbl.style.cssText = 'width:100%;margin-top:1rem;border-collapse:collapse;';
+                    const thead = document.createElement('thead');
+                    thead.innerHTML = '<tr><th style="text-align:left;padding:0.4rem 0.6rem;border-bottom:1px solid #30363d;">Node</th><th style="text-align:right;padding:0.4rem 0.6rem;border-bottom:1px solid #30363d;">Mean Delay (days)</th></tr>';
+                    tbl.appendChild(thead);
+                    const tbody = document.createElement('tbody');
+                    atRisk.forEach(n => {
+                        const tr = document.createElement('tr');
+                        const tdNode = document.createElement('td');
+                        tdNode.style.cssText = 'padding:0.4rem 0.6rem;border-bottom:1px solid #21262d;';
+                        tdNode.textContent = n.node || '';
+                        const tdDelay = document.createElement('td');
+                        tdDelay.style.cssText = 'padding:0.4rem 0.6rem;border-bottom:1px solid #21262d;text-align:right;';
+                        tdDelay.textContent = n.mean_delay != null ? n.mean_delay : '';
+                        tr.appendChild(tdNode);
+                        tr.appendChild(tdDelay);
+                        tbody.appendChild(tr);
+                    });
+                    tbl.appendChild(tbody);
+                    forecastEl.appendChild(tbl);
+                }
+            }
+        }
+
+        function closeSimPage() {
+            document.getElementById('sim-page').style.display = 'none';
+        }
+
+        async function regenerateSim() {
+            const documentId = _currentSimDocumentId;
+            if (!documentId) return;
+            closeSimPage();
+            await fetch(`/api/v1/reports/risk-simulation/${documentId}`, { method: 'DELETE' });
+            await openRiskSimulator();
+        }
+
+        function copySimText() {
+            const result = _currentSimResult;
+            if (!result) { showToast('No simulation data to copy.'); return; }
+            let text = 'RISK SIMULATOR REPORT\n' + '='.repeat(40) + '\n\n';
+
+            // Blast radius
+            const br = result.blast_radius;
+            if (br) {
+                text += 'BLAST RADIUS ANALYSIS\n' + '-'.repeat(30) + '\n';
+                if (br.total_svi_score != null) text += `Total SVI Score: ${br.total_svi_score}\n`;
+                (br.hub_nodes || []).forEach(n => {
+                    text += `  ${n.node || ''} — Cascade Depth: ${n.cascade_depth}, Blast Radius: ${n.blast_radius}, SVI Contribution: ${n.svi_contribution}${n.newly_detected ? ' [NEW]' : ''}\n`;
+                });
+                text += '\n';
+            }
+
+            // Scenarios
+            const scenarios = (result.black_swan && result.black_swan.scenarios) || [];
+            if (scenarios.length > 0) {
+                text += 'BLACK SWAN SCENARIOS\n' + '-'.repeat(30) + '\n';
+                scenarios.forEach(s => {
+                    text += `${s.title || ''}\n`;
+                    text += `  Trigger: ${s.trigger_node || ''}\n`;
+                    text += `  Cascade: ${(s.cascade_path || []).join(' → ')}\n`;
+                    text += `  Impact radius: ${s.impact_radius}\n`;
+                    text += `  Mitigation: ${s.mitigation || ''}\n\n`;
+                });
+            }
+
+            // Forecast
+            const mc = result.monte_carlo;
+            if (mc) {
+                text += 'SCHEDULE FORECASTING\n' + '-'.repeat(30) + '\n';
+                if (mc.available === false) {
+                    text += `${mc.reason || 'Unavailable'}\n`;
+                } else {
+                    if (mc.p50_delay != null) text += `P50 delay: ${mc.p50_delay} days\n`;
+                    if (mc.p80_delay != null) text += `P80 delay: ${mc.p80_delay} days\n`;
+                    if (mc.p95_delay != null) text += `P95 delay: ${mc.p95_delay} days\n`;
+                    (mc.at_risk_nodes || []).forEach(n => {
+                        text += `  ${n.node || ''}: ${n.mean_delay} days\n`;
+                    });
+                }
+            }
+
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('Copied to clipboard');
+                const btn = document.getElementById('sim-copy-btn');
+                if (btn) { btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = '📋 Copy'; }, 2000); }
+            }).catch(() => showToast('Copy failed — please select and copy manually.'));
         }
     </script>
 </body>
