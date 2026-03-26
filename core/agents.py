@@ -698,6 +698,7 @@ class RecursiveDraftingAgent:
         chrono = raw_issues.get("chronological_friction_lines", [])
         hubs = raw_issues.get("hub_vulnerabilities", [])
         self._flat_issues: List[Dict[str, Any]] = friction + chrono + hubs
+        self.model = _get_model("smart")
 
     def run(self, chapter: Dict[str, Any], rolling_context: str = "") -> Dict[str, Any]:
         """

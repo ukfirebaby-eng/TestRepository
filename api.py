@@ -3,11 +3,12 @@ import uuid
 import shutil
 import asyncio
 import json as _json
+import datetime
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any, List
-from core.agents import StorytellerAgent, CriticAgent, KDECoverageCheck
+from core.agents import StorytellerAgent, CriticAgent, KDECoverageCheck, OutlineAgent, RecursiveDraftingAgent
 
 # Import our previously written core logic
 from core.orchestrator import DiamondOrchestrator
@@ -37,6 +38,9 @@ DOCUMENT_STORE: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
 # Prevents concurrent generation for the same document.
 # Safe as a plain set — FastAPI's async loop is single-threaded.
 _active_generations: set = set()
+
+# --- In-flight narrative generation tracker ---
+_active_narratives: set = set()
 
 
 def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id: str, document_name: str):
@@ -290,6 +294,49 @@ async def delete_executive_summary(document_id: str):
     vault.delete_executive_summary(document_id)
 
 
+def assemble_narrative(chapters: list, raw_issues: dict) -> dict:
+    """
+    Assembles chapter drafts + raw issues into the final narrative report dict.
+    Builds a flat issues list (Critic/KDE compatible) by resolving chapter indices
+    against the concatenated friction_lines + chronological_friction_lines + hub_vulnerabilities.
+    """
+    flat_issues = (
+        raw_issues.get("friction_lines", [])
+        + raw_issues.get("chronological_friction_lines", [])
+        + raw_issues.get("hub_vulnerabilities", [])
+    )
+
+    issues: list = []
+    for chapter in chapters:
+        for idx in chapter.get("indices", []):
+            if 0 <= idx < len(flat_issues):
+                issues.append(flat_issues[idx])
+
+    if not flat_issues:
+        overall_assessment = "No Issues Found"
+    else:
+        severities = [i.get("severity", 0) for i in flat_issues if isinstance(i.get("severity"), (int, float))]
+        max_severity = max(severities) if severities else 0
+        if max_severity >= 5:
+            overall_assessment = "Critical Risk"
+        elif max_severity >= 4:
+            overall_assessment = "High Risk"
+        elif max_severity >= 3:
+            overall_assessment = "Moderate Risk"
+        else:
+            overall_assessment = "Low Risk"
+
+    return {
+        "overall_assessment": overall_assessment,
+        "generated_at": datetime.datetime.utcnow().isoformat(),
+        "executive_summary": "",
+        "chapters": chapters,
+        "issues": issues,
+        "coverage_verified": False,
+        "coverage_warning": None,
+    }
+
+
 @app.get("/api/v1/canvas/{document_id}")
 async def get_canvas_data(document_id: str):
     """Returns the unified graph topology for the WebGL renderer."""
@@ -358,3 +405,89 @@ async def get_canvas_data(document_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/reports/narrative/{document_id}")
+async def get_narrative_report(document_id: str):
+    """Returns the cached narrative report, or {"cached": False} if not yet generated."""
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    cached = vault.get_narrative_report(document_id)
+    if cached is None:
+        return {"cached": False}
+    return {"cached": True, "report": cached}
+
+
+@app.post("/api/v1/reports/narrative/{document_id}")
+async def generate_narrative_report(document_id: str):
+    """
+    Triggers multi-chapter narrative report generation and streams progress via SSE.
+    Uses OutlineAgent + RecursiveDraftingAgent (or StorytellerAgent fallback).
+    Returns 409 if already generating.
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if document_id in _active_narratives:
+        raise HTTPException(status_code=409, detail="Narrative generation already in progress for this document.")
+
+    _active_narratives.add(document_id)
+
+    async def _stream():
+        try:
+            yield f"data: {_json.dumps({'stage': 'analysing', 'message': 'Analysing issues...'})}\n\n"
+            raw_issues = await asyncio.to_thread(_gather_raw_issues, document_id)
+
+            yield f"data: {_json.dumps({'stage': 'outlining', 'message': 'Identifying thematic chapters\u2026'})}\n\n"
+            outline = await asyncio.to_thread(OutlineAgent().run, raw_issues)
+
+            if len(outline) <= 1:
+                storyteller = StorytellerAgent()
+                draft = await asyncio.to_thread(storyteller.run, raw_issues)
+                drafter_or_storyteller = storyteller
+            else:
+                drafter = RecursiveDraftingAgent(raw_issues)
+                chapters = []
+                rolling = ""
+                for i, chapter_outline in enumerate(outline):
+                    chapter_title = chapter_outline.get("title", f"Chapter {i + 1}")
+                    n = len(outline)
+                    yield f"data: {_json.dumps({'stage': f'drafting_{i + 1}_of_{n}', 'message': f'Writing chapter {i + 1} of {n}: {chapter_title}\u2026'})}\n\n"
+                    result = await asyncio.to_thread(drafter.run, chapter_outline, rolling)
+                    chapters.append(result)
+                    rolling = "; ".join(f"{c['title']}: {c['narrative'][:120]}" for c in chapters)
+                draft = assemble_narrative(chapters, raw_issues)
+                drafter_or_storyteller = drafter
+
+            yield f"data: {_json.dumps({'stage': 'auditing', 'message': 'Auditing for omissions\u2026'})}\n\n"
+            audited = await asyncio.to_thread(CriticAgent().run, draft, raw_issues, drafter_or_storyteller)
+
+            yield f"data: {_json.dumps({'stage': 'verifying', 'message': 'Verifying coverage\u2026'})}\n\n"
+            final = await asyncio.to_thread(KDECoverageCheck(vault).check, document_id, audited)
+
+            model = drafter_or_storyteller.model if hasattr(drafter_or_storyteller, "model") else "unknown"
+            vault.save_narrative_report(document_id, final, model)
+            yield f"data: {_json.dumps({'stage': 'complete', 'report': final})}\n\n"
+        finally:
+            _active_narratives.discard(document_id)
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+@app.delete("/api/v1/reports/narrative/{document_id}", status_code=204)
+async def delete_narrative_report(document_id: str):
+    """
+    Clears the cached narrative report for a document. Idempotent — 204 even if no cached row.
+    Returns 404 only if the document_id does not exist at all.
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    vault.delete_narrative_report(document_id)
