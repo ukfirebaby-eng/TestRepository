@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any, List
 from core.agents import StorytellerAgent, CriticAgent, KDECoverageCheck, OutlineAgent, RecursiveDraftingAgent
+from core.simulator import BlastRadiusCalculator, BlackSwanAgent, MonteCarloForecaster
 
 # Import our previously written core logic
 from core.orchestrator import DiamondOrchestrator
@@ -41,6 +42,9 @@ _active_generations: set = set()
 
 # --- In-flight narrative generation tracker ---
 _active_narratives: set = set()
+
+# --- In-flight risk simulation tracker ---
+_active_simulations: set = set()
 
 
 def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id: str, document_name: str):
@@ -489,3 +493,66 @@ async def delete_narrative_report(document_id: str):
         raise HTTPException(status_code=404, detail="Document not found.")
 
     vault.delete_narrative_report(document_id)
+
+
+@app.get("/api/v1/reports/risk-simulation/{document_id}")
+async def get_risk_simulation(document_id: str):
+    """Returns the cached risk simulation result, or {"cached": False} if not yet generated."""
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    cached = vault.get_risk_simulation(document_id)
+    if cached is None:
+        return {"cached": False}
+    return {"cached": True, "result": cached}
+
+
+@app.post("/api/v1/reports/risk-simulation/{document_id}")
+async def generate_risk_simulation(document_id: str):
+    """
+    Triggers blast-radius, black-swan, and Monte Carlo simulation and streams progress via SSE.
+    Caches the completed result in the vault. Returns 409 if already simulating.
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if document_id in _active_simulations:
+        raise HTTPException(status_code=409, detail="Risk simulation already in progress for this document.")
+
+    async def _stream():
+        _active_simulations.add(document_id)
+        try:
+            yield f"data: {_json.dumps({'stage': 'blast_radius', 'message': 'Calculating blast radius\u2026'})}\n\n"
+            blast = await asyncio.to_thread(BlastRadiusCalculator(document_id, vault).run)
+
+            yield f"data: {_json.dumps({'stage': 'black_swan', 'message': 'Generating stress scenarios\u2026'})}\n\n"
+            black_swan = await asyncio.to_thread(BlackSwanAgent(document_id, vault).run)
+
+            yield f"data: {_json.dumps({'stage': 'monte_carlo', 'message': 'Running 5,000 timeline trials\u2026'})}\n\n"
+            forecast = await asyncio.to_thread(MonteCarloForecaster(document_id, vault).run)
+
+            final_result = {"blast_radius": blast, "black_swan": black_swan, "monte_carlo": forecast}
+            vault.save_risk_simulation(document_id, final_result)
+            yield f"data: {_json.dumps({'stage': 'complete', 'result': final_result})}\n\n"
+        finally:
+            _active_simulations.discard(document_id)
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+@app.delete("/api/v1/reports/risk-simulation/{document_id}", status_code=204)
+async def delete_risk_simulation(document_id: str):
+    """
+    Clears the cached risk simulation for a document. Idempotent — 204 even if no cached row.
+    Returns 404 only if the document_id does not exist at all.
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    vault.delete_risk_simulation(document_id)
