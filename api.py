@@ -436,9 +436,8 @@ async def generate_narrative_report(document_id: str):
     if document_id in _active_narratives:
         raise HTTPException(status_code=409, detail="Narrative generation already in progress for this document.")
 
-    _active_narratives.add(document_id)
-
     async def _stream():
+        _active_narratives.add(document_id)
         try:
             yield f"data: {_json.dumps({'stage': 'analysing', 'message': 'Analysing issues...'})}\n\n"
             raw_issues = await asyncio.to_thread(_gather_raw_issues, document_id)
@@ -470,8 +469,7 @@ async def generate_narrative_report(document_id: str):
             yield f"data: {_json.dumps({'stage': 'verifying', 'message': 'Verifying coverage\u2026'})}\n\n"
             final = await asyncio.to_thread(KDECoverageCheck(vault).check, document_id, audited)
 
-            model = drafter_or_storyteller.model if hasattr(drafter_or_storyteller, "model") else "unknown"
-            vault.save_narrative_report(document_id, final, model)
+            vault.save_narrative_report(document_id, final, drafter_or_storyteller.model)
             yield f"data: {_json.dumps({'stage': 'complete', 'report': final})}\n\n"
         finally:
             _active_narratives.discard(document_id)
