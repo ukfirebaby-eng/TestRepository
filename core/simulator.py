@@ -1,11 +1,14 @@
 """
-core/simulator.py — Blast radius and System Vulnerability Index (SVI) simulation.
-
-No LLM calls. Pure Python BFS + arithmetic over the live SQLite graph.
+core/simulator.py — Blast radius and System Vulnerability Index (SVI) simulation,
+plus Black Swan scenario generation via LLM.
 """
 
+import json
+import re
 from collections import deque
 from typing import Any, Dict, List
+
+from core.agents import _get_client, _get_model
 
 
 class BlastRadiusCalculator:
@@ -136,3 +139,98 @@ class BlastRadiusCalculator:
         hub_results.sort(key=lambda x: x["svi_contribution"], reverse=True)
 
         return {"svi": svi_total, "nodes": hub_results}
+
+
+class BlackSwanAgent:
+    """
+    Generates Black Swan risk scenarios grounded in the document's hub nodes.
+    Uses the smart LLM tier at temperature 0.7 for creative-but-grounded output.
+    """
+
+    REQUIRED_KEYS = {"title", "trigger_node", "cascade_path", "impact_radius", "mitigation"}
+
+    def __init__(self, document_id: str, vault):
+        self.document_id = document_id
+        self.vault = vault
+
+    def run(self) -> Dict[str, Any]:
+        # ── 1. Fetch hub vulnerabilities ────────────────────────────────────
+        hub_vulns = self.vault.get_hub_vulnerabilities(self.document_id, limit=10)
+
+        # ── 2. Fetch fragility lines ─────────────────────────────────────────
+        fragility = self.vault.get_fragility_lines(self.document_id)
+
+        # ── 3. Early exit if nothing to work with ────────────────────────────
+        if not hub_vulns and not fragility:
+            return {"scenarios": []}
+
+        # ── 4. Build grounding context from hub node names ───────────────────
+        hub_lines = []
+        for hub in hub_vulns:
+            name = hub.get("name", hub.get("id", "Unknown"))
+            dep_count = hub.get("dependency_count", 0)
+            hub_lines.append(f'- "{name}" (in-degree: {dep_count})')
+
+        grounding_context = (
+            "Hub nodes (nodes other project elements depend on):\n"
+            + "\n".join(hub_lines)
+        )
+
+        # ── 5. Call LLM ───────────────────────────────────────────────────────
+        system_prompt = (
+            "You are a strategic risk analyst. Generate exactly 3 Black Swan scenarios "
+            "for the project. Each scenario must reference only the specific node names "
+            "provided in the context. Return valid JSON only."
+        )
+
+        user_prompt = (
+            f"{grounding_context}\n\n"
+            "Generate 3 Black Swan scenarios as a JSON array. Each scenario object must "
+            "have these exact keys: 'title' (string), 'trigger_node' (string — must be "
+            "one of the hub node names above), 'cascade_path' (array of strings — node "
+            "names from the list above), 'impact_radius' (string, e.g. '7 of 12 nodes "
+            "affected'), 'mitigation' (string). Return only the JSON array, no other text."
+        )
+
+        try:
+            client = _get_client()
+            response = client.chat.completions.create(
+                model=_get_model("smart"),
+                temperature=0.7,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            content = response.choices[0].message.content
+        except Exception:
+            return {"scenarios": []}
+
+        # ── 6. Parse and validate response ────────────────────────────────────
+        try:
+            stripped = re.sub(
+                r"^```[^\n]*\n?|```$", "", content, flags=re.MULTILINE
+            ).strip()
+            parsed = json.loads(stripped)
+
+            if not isinstance(parsed, list):
+                return {"scenarios": []}
+
+            validated = []
+            for item in parsed:
+                if not isinstance(item, dict):
+                    return {"scenarios": []}
+                if not self.REQUIRED_KEYS.issubset(item.keys()):
+                    return {"scenarios": []}
+                validated.append({
+                    "title": item["title"],
+                    "trigger_node": item["trigger_node"],
+                    "cascade_path": item["cascade_path"],
+                    "impact_radius": item["impact_radius"],
+                    "mitigation": item["mitigation"],
+                })
+        except Exception:
+            return {"scenarios": []}
+
+        # ── 7. Return ─────────────────────────────────────────────────────────
+        return {"scenarios": validated}

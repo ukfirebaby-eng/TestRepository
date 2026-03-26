@@ -1,10 +1,11 @@
 """
-tests/test_simulator.py — Unit tests for BlastRadiusCalculator.
+tests/test_simulator.py — Unit tests for BlastRadiusCalculator and BlackSwanAgent.
 """
 
+import json
 import pytest
-from unittest.mock import MagicMock
-from core.simulator import BlastRadiusCalculator
+from unittest.mock import MagicMock, patch
+from core.simulator import BlastRadiusCalculator, BlackSwanAgent
 
 
 def _make_vault(edges, node_names=None, fragility_lines=None):
@@ -173,3 +174,110 @@ class TestBlastRadiusCalculator:
 
         assert result["svi"] == pytest.approx(0.75, rel=1e-4)
         assert len(result["nodes"]) == 2
+
+
+# ── Helpers for BlackSwanAgent tests ─────────────────────────────────────────
+
+_SAMPLE_HUBS = [
+    {"id": "node_1", "name": "Budget Approval", "label": "Process", "dependency_count": 5},
+    {"id": "node_2", "name": "Core Platform", "label": "System",  "dependency_count": 3},
+]
+
+_VALID_SCENARIOS = [
+    {
+        "title": "Scenario A",
+        "trigger_node": "Budget Approval",
+        "cascade_path": ["Budget Approval", "Core Platform"],
+        "impact_radius": "7 of 12 nodes affected",
+        "mitigation": "Establish a backup approval process.",
+    },
+    {
+        "title": "Scenario B",
+        "trigger_node": "Core Platform",
+        "cascade_path": ["Core Platform"],
+        "impact_radius": "3 of 12 nodes affected",
+        "mitigation": "Introduce redundancy.",
+    },
+    {
+        "title": "Scenario C",
+        "trigger_node": "Budget Approval",
+        "cascade_path": ["Budget Approval"],
+        "impact_radius": "5 of 12 nodes affected",
+        "mitigation": "Pre-authorise contingency funds.",
+    },
+]
+
+
+def _make_mock_client(content: str) -> MagicMock:
+    """Build a mock OpenAI client that returns `content` from chat.completions.create."""
+    mock_message = MagicMock()
+    mock_message.content = content
+
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = mock_response
+    return mock_client
+
+
+class TestBlackSwanAgent:
+
+    def test_returns_three_scenarios(self):
+        """Mock LLM returns valid JSON with 3 scenarios; verify all required keys present."""
+        content = json.dumps(_VALID_SCENARIOS)
+        mock_client = _make_mock_client(content)
+
+        vault = MagicMock()
+        vault.get_hub_vulnerabilities.return_value = _SAMPLE_HUBS
+        vault.get_fragility_lines.return_value = []
+
+        with patch("core.simulator._get_client", return_value=mock_client):
+            result = BlackSwanAgent("doc_bs_1", vault).run()
+
+        assert "scenarios" in result
+        assert len(result["scenarios"]) == 3
+        for scenario in result["scenarios"]:
+            assert "title" in scenario
+            assert "trigger_node" in scenario
+            assert "cascade_path" in scenario
+            assert "impact_radius" in scenario
+            assert "mitigation" in scenario
+
+    def test_node_names_grounded_in_prompt(self):
+        """Hub node names from vault must appear in the LLM call's user message."""
+        content = json.dumps(_VALID_SCENARIOS)
+        mock_client = _make_mock_client(content)
+
+        vault = MagicMock()
+        vault.get_hub_vulnerabilities.return_value = _SAMPLE_HUBS
+        vault.get_fragility_lines.return_value = []
+
+        with patch("core.simulator._get_client", return_value=mock_client):
+            BlackSwanAgent("doc_bs_2", vault).run()
+
+        call_kwargs = mock_client.chat.completions.create.call_args
+        # call_args.kwargs is the reliable way to get keyword arguments
+        messages = call_kwargs.kwargs.get("messages", call_kwargs[0][0] if call_kwargs[0] else [])
+        # Flatten all message content into one string for easy assertion
+        all_content = " ".join(m["content"] for m in messages)
+
+        assert "Budget Approval" in all_content
+        assert "Core Platform" in all_content
+
+    def test_handles_malformed_llm_response(self):
+        """Non-JSON / partial JSON from LLM → returns {'scenarios': []} without exception."""
+        for bad_content in ["not json at all", '{"broken": true', "```json\n[{bad}]\n```"]:
+            mock_client = _make_mock_client(bad_content)
+
+            vault = MagicMock()
+            vault.get_hub_vulnerabilities.return_value = _SAMPLE_HUBS
+            vault.get_fragility_lines.return_value = []
+
+            with patch("core.simulator._get_client", return_value=mock_client):
+                result = BlackSwanAgent("doc_bs_3", vault).run()
+
+            assert result == {"scenarios": []}, f"Failed for input: {bad_content!r}"
