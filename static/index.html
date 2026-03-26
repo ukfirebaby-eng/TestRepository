@@ -1842,14 +1842,16 @@
                 const decoder = new TextDecoder();
                 let buffer = '';
 
+                let reportReceived = false;
                 const processLines = (text) => {
-                    const lines = text.split('\n');
+                    const lines = text.split(/\r\n|\r|\n/);
                     for (const line of lines) {
                         if (!line.startsWith('data:')) continue;
                         try {
                             const event = JSON.parse(line.slice(5).trim());
-                            if (event.stage === 'complete') {
+                            if (event.stage === 'complete' && event.report) {
                                 _currentNarrativeReport = event.report;
+                                reportReceived = true;
                                 overlay.style.display = 'none';
                                 renderNarrativePage(event.report);
                             } else if (event.message) {
@@ -1859,23 +1861,17 @@
                     }
                 };
 
-                let reportReceived = false;
-                const trackingProcessLines = (text) => {
-                    if (text.includes('"complete"')) reportReceived = true;
-                    processLines(text);
-                };
-
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) {
                         buffer += decoder.decode();
-                        trackingProcessLines(buffer);
+                        processLines(buffer);
                         break;
                     }
                     buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
+                    const lines = buffer.split(/\r\n|\r|\n/);
                     buffer = lines.pop();
-                    trackingProcessLines(lines.join('\n'));
+                    processLines(lines.join('\n'));
                 }
 
                 if (!reportReceived) {
