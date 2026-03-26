@@ -81,3 +81,27 @@ def test_has_temporal_data_returns_true_when_rows_exist(vault):
 def test_has_temporal_data_returns_false_when_no_rows(vault):
     vault.insert_document("doc_2", "empty.pdf")
     assert vault.has_temporal_data("doc_2") is False
+
+
+def test_has_temporal_data_returns_true_for_target_node(vault):
+    """Metadata on a target-only node (not source) must still be detected."""
+    vault.insert_document("doc_3", "target_test.pdf")
+    cursor = vault.conn.cursor()
+    # Insert nodes
+    cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)", ("node_c", "TASK", "Task C"))
+    cursor.execute("INSERT OR IGNORE INTO nodes (id, label, name) VALUES (?, ?, ?)", ("node_d", "TASK", "Task D"))
+    vault.conn.commit()
+    # Insert an edge linking node_c -> node_d for doc_3
+    cursor.execute(
+        "INSERT OR IGNORE INTO edges (id, document_id, source_id, target_id, relationship, source_chunk_id) VALUES (?, ?, ?, ?, ?, ?)",
+        ("doc_3_edge_1", "doc_3", "node_c", "node_d", "STARTS_AFTER", "chunk_1")
+    )
+    vault.conn.commit()
+    # Insert temporal metadata ONLY on node_d (the target node — not the source)
+    cursor.execute(
+        "INSERT OR REPLACE INTO temporal_metadata (node_id, start_date, end_date) VALUES (?, ?, ?)",
+        ("node_d", "2026-02-01", "2026-04-01")
+    )
+    vault.conn.commit()
+
+    assert vault.has_temporal_data("doc_3") is True

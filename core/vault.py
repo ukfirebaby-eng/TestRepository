@@ -746,8 +746,13 @@ class HybridVault:
         """Returns True if any nodes in this document's edges have temporal metadata."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT COUNT(*) FROM temporal_metadata WHERE node_id IN (SELECT source_id FROM edges WHERE document_id = ?)",
-            (document_id,)
+            """SELECT COUNT(*) FROM temporal_metadata
+               WHERE node_id IN (
+                   SELECT source_id FROM edges WHERE document_id = ?
+                   UNION
+                   SELECT target_id FROM edges WHERE document_id = ?
+               )""",
+            (document_id, document_id)
         )
         row = cursor.fetchone()
         return row[0] > 0
