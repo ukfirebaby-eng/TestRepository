@@ -138,3 +138,38 @@ class TestBlastRadiusCalculator:
         hub = result["nodes"][0]
         # B, C, D, E are reachable but not in precomputed → newly_detected=True
         assert hub["newly_detected"] is True
+
+    def test_multi_hub_svi_is_sum_capped(self):
+        """
+        Two hub nodes H1 and H2, each with in-degree 3.
+        max_in_degree = 3 for both.
+
+        Topology:
+          A, B, C -> H1  (H1 in-degree 3)
+          D, E, F -> H2  (H2 in-degree 3)
+
+        total_nodes = 8 (A B C H1 D E F H2)
+        max_in_degree = 3
+
+        H1: blast_radius = {A, B, C} = 3
+            svi_contribution = (3/8) * (3/3) = 0.375
+
+        H2: blast_radius = {D, E, F} = 3
+            svi_contribution = (3/8) * (3/3) = 0.375
+
+        svi_total = min(0.375 + 0.375, 1.0) = 0.75
+        (NOT the average 0.375 that the old branching code produced)
+        """
+        edges = [
+            {"source_id": "A", "target_id": "H1"},
+            {"source_id": "B", "target_id": "H1"},
+            {"source_id": "C", "target_id": "H1"},
+            {"source_id": "D", "target_id": "H2"},
+            {"source_id": "E", "target_id": "H2"},
+            {"source_id": "F", "target_id": "H2"},
+        ]
+        vault = _make_vault(edges)
+        result = BlastRadiusCalculator("doc5", vault).run()
+
+        assert result["svi"] == pytest.approx(0.75, rel=1e-4)
+        assert len(result["nodes"]) == 2

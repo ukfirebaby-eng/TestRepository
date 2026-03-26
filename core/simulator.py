@@ -35,8 +35,6 @@ class BlastRadiusCalculator:
         in_degree: Dict[str, int] = {}
 
         for row in edges:
-            src = row["source_id"] if hasattr(row, "__getitem__") else row[0]
-            tgt = row["target_id"] if hasattr(row, "__getitem__") else row[1]
             # Try dict-style first (sqlite3.Row / mock dict), fall back to index
             try:
                 src = row["source_id"]
@@ -130,12 +128,7 @@ class BlastRadiusCalculator:
             )
 
         # ── 6. SVI total ─────────────────────────────────────────────────────
-        svi_sum = sum(r["svi_contribution"] for r in hub_results)
-        n_hubs = len(hub_results)
-        if n_hubs > 1:
-            svi_total = min(svi_sum / n_hubs, 1.0)
-        else:
-            svi_total = min(svi_sum, 1.0)
+        svi_total = min(sum(n["svi_contribution"] for n in hub_results), 1.0)
 
         hub_results.sort(key=lambda x: x["svi_contribution"], reverse=True)
 
