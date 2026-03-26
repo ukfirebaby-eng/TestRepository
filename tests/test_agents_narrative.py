@@ -175,7 +175,7 @@ class TestRecursiveDraftingAgent:
 
         call_args = mock_client.chat.completions.create.call_args
         # Extract the messages from the call kwargs
-        messages = call_args.kwargs.get("messages") or call_args.args[0] if call_args.args else call_args.kwargs["messages"]
+        messages = call_args.kwargs["messages"]
         # Flatten all message content into one string for easy assertion
         all_content = " ".join(m["content"] for m in messages)
         assert rolling_context in all_content, (
