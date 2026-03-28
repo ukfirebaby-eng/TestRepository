@@ -49,6 +49,9 @@ _active_narratives: set = set()
 # --- In-flight risk simulation tracker ---
 _active_simulations: set = set()
 
+# --- In-flight mitigation tracker ---
+_active_mitigations: set[str] = set()
+
 
 def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id: str, document_name: str):
     """The background worker that executes the Orchestrator without freezing the API."""
@@ -592,41 +595,53 @@ async def generate_mitigation(
     if cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    cursor.execute(
+    cursor2 = vault.conn.cursor()
+    cursor2.execute(
         "SELECT diamond, provenance_ids FROM friction_lines "
         "WHERE document_id=? AND source_node_id=? AND target_node_id=?",
         (document_id, source_node_id, target_node_id),
     )
-    row = cursor.fetchone()
+    row = cursor2.fetchone()
     if row is None:
-        cursor.execute(
+        cursor3 = vault.conn.cursor()
+        cursor3.execute(
             "SELECT diamond, provenance_ids FROM chronological_friction_lines "
             "WHERE document_id=? AND source_node_id=? AND target_node_id=?",
             (document_id, source_node_id, target_node_id),
         )
-        row = cursor.fetchone()
+        row = cursor3.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Friction item not found.")
 
     diamond = row["diamond"]
     provenance_ids = _json.loads(row["provenance_ids"])
 
+    mitigation_key = f"{document_id}:{source_node_id}:{target_node_id}"
+    if mitigation_key in _active_mitigations:
+        raise HTTPException(status_code=409, detail="Mitigation already in progress for this friction item.")
+
     async def _stream():
-        yield f"data: {_json.dumps({'stage': 'analysing', 'message': 'Analysing friction item\u2026'})}\n\n"
+        _active_mitigations.add(mitigation_key)
+        try:
+            yield f"data: {_json.dumps({'stage': 'analysing', 'message': 'Analysing friction item\u2026'})}\n\n"
 
-        source_texts = []
-        for chunk_id in provenance_ids:
-            chunk = vault.get_chunk_provenance(chunk_id)
-            if chunk.get("text"):
-                source_texts.append(chunk["text"])
-        source_text = "\n\n---\n\n".join(source_texts) or "No source text available."
+            source_texts = []
+            for chunk_id in provenance_ids:
+                chunk = vault.get_chunk_provenance(chunk_id)
+                if chunk.get("text"):
+                    source_texts.append(chunk["text"])
+            source_text = "\n\n---\n\n".join(source_texts) or "No source text available."
 
-        result = await asyncio.to_thread(
-            ContradictionHunterAgent.synthesize_mitigation,
-            diamond,
-            source_text,
-        )
-        analysis = result.get("analysis", "No mitigation available.")
-        yield f"data: {_json.dumps({'token': analysis})}\n\n"
+            result = await asyncio.to_thread(
+                ContradictionHunterAgent.synthesize_mitigation,
+                diamond,
+                source_text,
+            )
+            analysis = result.get("analysis", "No mitigation available.")
+            yield f"data: {_json.dumps({'token': analysis})}\n\n"
+        except Exception as exc:
+            yield f"data: {_json.dumps({'error': str(exc)})}\n\n"
+        finally:
+            _active_mitigations.discard(mitigation_key)
 
     return StreamingResponse(content=_stream(), media_type="text/event-stream")
