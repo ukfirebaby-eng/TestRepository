@@ -4,11 +4,11 @@ import shutil
 import asyncio
 import json as _json
 import datetime
-from fastapi import FastAPI, BackgroundTasks, UploadFile, File, HTTPException
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any, List
-from core.agents import StorytellerAgent, CriticAgent, KDECoverageCheck, OutlineAgent, RecursiveDraftingAgent
+from core.agents import StorytellerAgent, CriticAgent, KDECoverageCheck, OutlineAgent, RecursiveDraftingAgent, ContradictionHunterAgent
 from core.simulator import BlastRadiusCalculator, BlackSwanAgent, MonteCarloForecaster
 
 # Import our previously written core logic
@@ -24,7 +24,10 @@ app.mount("/assets", StaticFiles(directory="static"), name="static")
 # --- Shared Vault Singleton ---
 # Single instance shared across all request handlers to avoid multiple
 # concurrent PersistentClient connections to the same ChromaDB directory.
-vault = HybridVault(tenant_id="local_user_01")
+vault = HybridVault(
+    tenant_id="local_user_01",
+    base_dir=os.getenv("VAULT_PATH", "./vaults"),
+)
 
 # --- In-Memory Job Store ---
 # For a local desktop app, a simple dictionary is perfect for tracking async jobs.
@@ -155,6 +158,20 @@ async def delete_document_endpoint(document_id: str):
         vault.delete_document(document_id)
         DOCUMENT_STORE.pop(document_id, None)
         return {"status": "deleted", "document_id": document_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/vault", status_code=200)
+async def clear_vault():
+    """Wipes all documents, graph data, analysis results, and report caches."""
+    if _active_generations or _active_narratives or _active_simulations:
+        raise HTTPException(status_code=409, detail="Generation in progress — cancel before clearing.")
+    try:
+        vault.clear_all()
+        DOCUMENT_STORE.clear()
+        JOB_STORE.clear()
+        return {"status": "cleared"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -556,3 +573,60 @@ async def delete_risk_simulation(document_id: str):
         raise HTTPException(status_code=404, detail="Document not found.")
 
     vault.delete_risk_simulation(document_id)
+
+
+@app.post("/api/v1/reports/mitigation/{document_id}")
+async def generate_mitigation(
+    document_id: str,
+    source_node_id: str = Query(...),
+    target_node_id: str = Query(...),
+):
+    """
+    Streams a targeted mitigation for a specific friction item identified by
+    source_node_id + target_node_id. Checks structural friction_lines first,
+    then chronological_friction_lines. Returns 404 if either the document or
+    the friction item is not found.
+    """
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    cursor.execute(
+        "SELECT diamond, provenance_ids FROM friction_lines "
+        "WHERE document_id=? AND source_node_id=? AND target_node_id=?",
+        (document_id, source_node_id, target_node_id),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        cursor.execute(
+            "SELECT diamond, provenance_ids FROM chronological_friction_lines "
+            "WHERE document_id=? AND source_node_id=? AND target_node_id=?",
+            (document_id, source_node_id, target_node_id),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Friction item not found.")
+
+    diamond = row["diamond"]
+    provenance_ids = _json.loads(row["provenance_ids"])
+
+    async def _stream():
+        yield f"data: {_json.dumps({'stage': 'analysing', 'message': 'Analysing friction item\u2026'})}\n\n"
+
+        source_texts = []
+        for chunk_id in provenance_ids:
+            chunk = vault.get_chunk_provenance(chunk_id)
+            if chunk.get("text"):
+                source_texts.append(chunk["text"])
+        source_text = "\n\n---\n\n".join(source_texts) or "No source text available."
+
+        result = await asyncio.to_thread(
+            ContradictionHunterAgent.synthesize_mitigation,
+            diamond,
+            source_text,
+        )
+        analysis = result.get("analysis", "No mitigation available.")
+        yield f"data: {_json.dumps({'token': analysis})}\n\n"
+
+    return StreamingResponse(content=_stream(), media_type="text/event-stream")
