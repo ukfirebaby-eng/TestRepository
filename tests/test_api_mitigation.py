@@ -90,6 +90,22 @@ class TestGenerateMitigation:
         assert "analysing" in body
         assert "Decouple the dependency" in body
 
+    def test_409_when_already_generating(self):
+        import api as api_module
+        key = "doc_abc:A:B"
+        api_module._active_mitigations.add(key)
+        try:
+            mock_vault = _make_vault(friction_row=_friction_row())
+            with patch("api.vault", mock_vault):
+                with TestClient(app) as c:
+                    r = c.post(
+                        "/api/v1/reports/mitigation/doc_abc",
+                        params={"source_node_id": "A", "target_node_id": "B"},
+                    )
+            assert r.status_code == 409
+        finally:
+            api_module._active_mitigations.discard(key)
+
     def test_falls_back_to_chronological_table(self):
         mock_vault = _make_vault(friction_row=None, chron_row=_friction_row(diamond="Temporal conflict"))
         mock_result = {"analysis": "Resolve the timeline conflict.", "is_genuine": True, "confidence": 0.8, "severity": 2, "probability": 2}
