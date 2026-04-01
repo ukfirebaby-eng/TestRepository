@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Literal
 from core.agents import StorytellerAgent, CriticAgent, KDECoverageCheck, OutlineAgent, RecursiveDraftingAgent, ContradictionHunterAgent
 from core.simulator import BlastRadiusCalculator, BlackSwanAgent, MonteCarloForecaster
 
@@ -16,6 +16,8 @@ from core.simulator import BlastRadiusCalculator, BlackSwanAgent, MonteCarloFore
 from core.orchestrator import DiamondOrchestrator
 from core.vault import HybridVault
 from core.config import read_env, write_env, mask_key
+from pydantic import BaseModel
+from dotenv import load_dotenv
 
 app = FastAPI(title="Diamond Miner API", version="1.0")
 
@@ -676,3 +678,37 @@ async def get_config():
         "SMART_MODEL":         vals.get("SMART_MODEL", ""),
         "VAULT_PATH":          vals.get("VAULT_PATH", ""),
     }
+
+
+class ConfigUpdate(BaseModel):
+    LLM_PROVIDER: Literal["openai", "openrouter"]
+    OPENAI_API_KEY: str = ""
+    OPENROUTER_API_KEY: str = ""
+    FAST_MODEL: str = ""
+    SMART_MODEL: str = ""
+    VAULT_PATH: str = ""
+
+
+def _resolve_key(submitted: str, existing: str) -> str:
+    """If submitted value is a masked stub (ends with …), return the existing value."""
+    if submitted.endswith("\u2026"):
+        return existing
+    return submitted
+
+
+@app.post("/api/v1/config")
+async def update_config(body: ConfigUpdate):
+    """Writes .env and hot-reloads env vars without restarting the server."""
+    env_path = _env_path()
+    existing = read_env(env_path)
+    values = {
+        "LLM_PROVIDER":       body.LLM_PROVIDER,
+        "OPENAI_API_KEY":     _resolve_key(body.OPENAI_API_KEY,     existing.get("OPENAI_API_KEY", "")),
+        "OPENROUTER_API_KEY": _resolve_key(body.OPENROUTER_API_KEY, existing.get("OPENROUTER_API_KEY", "")),
+        "FAST_MODEL":         body.FAST_MODEL,
+        "SMART_MODEL":        body.SMART_MODEL,
+        "VAULT_PATH":         body.VAULT_PATH,
+    }
+    write_env(env_path, values)
+    load_dotenv(dotenv_path=env_path, override=True)
+    return {"status": "applied"}
