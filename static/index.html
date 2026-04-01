@@ -12,6 +12,7 @@
             --bg-surface:     #0c1520;
             --bg-raised:      #111d2b;
             --bg-hover:       #162030;
+            --bg-deep:        #060c16;
             --border-dim:     #1c2f42;
             --border-bright:  #2a4560;
             --accent-cyan:    #00c8ff;
@@ -2439,6 +2440,12 @@
                     document.getElementById('cfg-vault-path').value     = data.VAULT_PATH         || '';
                     document.getElementById('cfg-status').textContent   = '';
                     _cfgUpdateProviderVisibility();
+                    document.getElementById('config-drawer').classList.add('config-drawer--open');
+                    document.getElementById('config-backdrop').classList.add('config-backdrop--open');
+                })
+                .catch(() => {
+                    document.getElementById('cfg-status').style.color = '#ff3333';
+                    document.getElementById('cfg-status').textContent = 'Could not load config';
                     document.getElementById('config-drawer').classList.add('config-drawer--open');
                     document.getElementById('config-backdrop').classList.add('config-backdrop--open');
                 });
