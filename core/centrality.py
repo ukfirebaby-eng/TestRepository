@@ -98,3 +98,28 @@ def compute_betweenness(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]
             cb[nid] /= norm
 
     return cb
+
+
+def compute_linkage_intensity(node_id: str, edges: List[Dict[str, Any]], max_weighted_degree: float) -> float:
+    """Normalised weighted degree for a node: sum of propagation factors for its edges."""
+    if max_weighted_degree <= 0:
+        return 0.0
+    total = 0.0
+    for edge in edges:
+        if edge["source_id"] == node_id or edge["target_id"] == node_id:
+            rel = edge.get("relationship", "RELATES_TO")
+            total += PROPAGATION_FACTORS.get(rel, 0.15)
+    return total / max_weighted_degree
+
+
+def compute_resilience(in_degree_count: int) -> float:
+    """Resilience: 1 / (1 + dependency_concentration).
+
+    Higher in-degree = more things depend on this node = lower resilience if it fails.
+    """
+    return 1.0 / (1.0 + in_degree_count)
+
+
+def compute_ripa(li: float, re: float, criticality: float) -> float:
+    """RIPA Systemic Vulnerability Index: LI * Criticality * (1 - RE)."""
+    return li * criticality * (1.0 - re)
