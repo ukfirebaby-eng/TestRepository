@@ -11,8 +11,14 @@ numpy
 # --- PDF Parsing & Geometric Extraction ---
 PyMuPDF>=1.24.0
 
+# --- Office Document Parsing ---
+python-docx
+openpyxl
+python-pptx
+
 # --- AI & LLM Integration ---
 openai
 httpx
+python-dotenv
 
 # Note: SQLite3 is part of the Python Standard Library, so it does not need to be pip installed.
