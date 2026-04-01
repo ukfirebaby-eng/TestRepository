@@ -4,6 +4,7 @@ import shutil
 import asyncio
 import json as _json
 import datetime
+from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -14,6 +15,7 @@ from core.simulator import BlastRadiusCalculator, BlackSwanAgent, MonteCarloFore
 # Import our previously written core logic
 from core.orchestrator import DiamondOrchestrator
 from core.vault import HybridVault
+from core.config import read_env, write_env, mask_key
 
 app = FastAPI(title="Diamond Miner API", version="1.0")
 
@@ -51,6 +53,11 @@ _active_simulations: set = set()
 
 # --- In-flight mitigation tracker ---
 _active_mitigations: set[str] = set()
+
+
+def _env_path() -> Path:
+    """Returns the path to the .env file co-located with api.py."""
+    return Path(__file__).parent / ".env"
 
 
 def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id: str, document_name: str):
@@ -117,6 +124,16 @@ async def ingest_document(background_tasks: BackgroundTasks, file: UploadFile = 
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    # Reject unsupported file types before spending any further resources
+    _ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".xlsx", ".csv", ".pptx"}
+    ext = Path(file.filename).suffix.lower()
+    if ext not in _ALLOWED_EXTENSIONS:
+        os.remove(file_path)
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(_ALLOWED_EXTENSIONS))}",
+        )
 
     # Register the job
     JOB_STORE[job_id] = {"status": "pending", "document_id": document_id, "log": []}
@@ -645,3 +662,17 @@ async def generate_mitigation(
             _active_mitigations.discard(mitigation_key)
 
     return StreamingResponse(content=_stream(), media_type="text/event-stream")
+
+
+@app.get("/api/v1/config")
+async def get_config():
+    """Returns current .env values; API keys masked to first 12 chars."""
+    vals = read_env(_env_path())
+    return {
+        "LLM_PROVIDER":        vals.get("LLM_PROVIDER", ""),
+        "OPENAI_API_KEY":      mask_key(vals.get("OPENAI_API_KEY", "")),
+        "OPENROUTER_API_KEY":  mask_key(vals.get("OPENROUTER_API_KEY", "")),
+        "FAST_MODEL":          vals.get("FAST_MODEL", ""),
+        "SMART_MODEL":         vals.get("SMART_MODEL", ""),
+        "VAULT_PATH":          vals.get("VAULT_PATH", ""),
+    }
