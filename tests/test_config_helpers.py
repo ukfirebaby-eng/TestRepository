@@ -73,7 +73,7 @@ class TestWriteEnv:
 
 class TestMaskKey:
     def test_masks_long_values(self):
-        assert mask_key("sk-or-v1-285fb99cc144") == "sk-or-v1-285f…"
+        assert mask_key("sk-or-v1-285fb99cc144") == "sk-or-v1-285\u2026"
 
     def test_does_not_mask_short_values(self):
         assert mask_key("short") == "short"
