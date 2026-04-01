@@ -2404,6 +2404,80 @@
                 if (btn) { btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = '📋 Copy'; }, 2000); }
             }).catch(() => showToast('Copy failed — please select and copy manually.'));
         }
+
+        // ── Config drawer ─────────────────────────────────────────────
+
+        function _cfgUpdateProviderVisibility() {
+            const isOR = document.getElementById('cfg-provider-openrouter').classList.contains('active');
+            document.getElementById('cfg-row-openrouter').style.display = isOR ? 'block' : 'none';
+            document.getElementById('cfg-row-openai').style.display    = isOR ? 'none'  : 'block';
+        }
+
+        function cfgToggleProvider(provider) {
+            document.getElementById('cfg-provider-openrouter').classList.toggle('active', provider === 'openrouter');
+            document.getElementById('cfg-provider-openai').classList.toggle('active',     provider === 'openai');
+            _cfgUpdateProviderVisibility();
+        }
+
+        function cfgToggleEye(inputId, btn) {
+            const input = document.getElementById(inputId);
+            input.type = input.type === 'password' ? 'text' : 'password';
+            btn.innerHTML = input.type === 'password' ? '&#128065;' : '&#128584;';
+        }
+
+        function openConfigDrawer() {
+            fetch('/api/v1/config')
+                .then(r => r.json())
+                .then(data => {
+                    const provider = data.LLM_PROVIDER || 'openrouter';
+                    document.getElementById('cfg-provider-openrouter').classList.toggle('active', provider === 'openrouter');
+                    document.getElementById('cfg-provider-openai').classList.toggle('active',     provider === 'openai');
+                    document.getElementById('cfg-openrouter-key').value = data.OPENROUTER_API_KEY || '';
+                    document.getElementById('cfg-openai-key').value     = data.OPENAI_API_KEY     || '';
+                    document.getElementById('cfg-fast-model').value     = data.FAST_MODEL         || '';
+                    document.getElementById('cfg-smart-model').value    = data.SMART_MODEL        || '';
+                    document.getElementById('cfg-vault-path').value     = data.VAULT_PATH         || '';
+                    document.getElementById('cfg-status').textContent   = '';
+                    _cfgUpdateProviderVisibility();
+                    document.getElementById('config-drawer').classList.add('config-drawer--open');
+                    document.getElementById('config-backdrop').classList.add('config-backdrop--open');
+                });
+        }
+
+        function closeConfigDrawer() {
+            document.getElementById('config-drawer').classList.remove('config-drawer--open');
+            document.getElementById('config-backdrop').classList.remove('config-backdrop--open');
+        }
+
+        function saveConfig() {
+            const provider = document.getElementById('cfg-provider-openrouter').classList.contains('active')
+                ? 'openrouter' : 'openai';
+            const body = {
+                LLM_PROVIDER:       provider,
+                OPENAI_API_KEY:     document.getElementById('cfg-openai-key').value,
+                OPENROUTER_API_KEY: document.getElementById('cfg-openrouter-key').value,
+                FAST_MODEL:         document.getElementById('cfg-fast-model').value,
+                SMART_MODEL:        document.getElementById('cfg-smart-model').value,
+                VAULT_PATH:         document.getElementById('cfg-vault-path').value,
+            };
+            const status = document.getElementById('cfg-status');
+            status.style.color = 'var(--text-secondary)';
+            status.textContent = 'Saving\u2026';
+            fetch('/api/v1/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            })
+            .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
+            .then(() => {
+                status.style.color = '#4caf50';
+                status.textContent = '\u26a1 Applied \u2713';
+            })
+            .catch(err => {
+                status.style.color = '#ff3333';
+                status.textContent = 'Error: ' + (err.detail || 'Unknown error');
+            });
+        }
     </script>
 </body>
 </html>
