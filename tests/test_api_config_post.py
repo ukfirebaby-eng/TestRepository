@@ -71,7 +71,7 @@ class TestPostConfig:
         with patch("api.load_dotenv"):
             test_client.post(
                 "/api/v1/config",
-                json=_valid_body(OPENROUTER_API_KEY="sk-or-v1-285f\u2026"),
+                json=_valid_body(OPENROUTER_API_KEY="sk-or-v1-285\u2026"),
             )
         content = env_file.read_text()
         assert 'OPENROUTER_API_KEY="sk-or-v1-original-secret"' in content

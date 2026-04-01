@@ -691,7 +691,7 @@ class ConfigUpdate(BaseModel):
 
 def _resolve_key(submitted: str, existing: str) -> str:
     """If submitted value is a masked stub (ends with …), return the existing value."""
-    if submitted.endswith("\u2026"):
+    if submitted.endswith("\u2026") and len(submitted) == 13:
         return existing
     return submitted
 
