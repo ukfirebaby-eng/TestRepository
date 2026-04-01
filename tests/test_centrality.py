@@ -1,5 +1,5 @@
 import pytest
-from core.centrality import PROPAGATION_FACTORS, compute_degree
+from core.centrality import PROPAGATION_FACTORS, compute_degree, compute_betweenness
 
 
 class TestPropagationFactors:
@@ -55,3 +55,59 @@ class TestComputeDegree:
         assert result["H"]["out_degree"] == 1.0
         assert result["H"]["in_degree"] == 0.0
         assert result["A"]["in_degree"] == 0.25
+
+
+class TestComputeBetweenness:
+    def test_chain_middle_highest(self):
+        """A->B->C: B is on all shortest paths between A and C."""
+        nodes = [{"id": "A"}, {"id": "B"}, {"id": "C"}]
+        edges = [
+            {"source_id": "A", "target_id": "B"},
+            {"source_id": "B", "target_id": "C"},
+        ]
+        result = compute_betweenness(nodes, edges)
+        assert result["B"] > result["A"]
+        assert result["B"] > result["C"]
+        assert result["A"] == 0.0
+        assert result["C"] == 0.0
+
+    def test_star_centre_highest(self):
+        """H->A, H->B, H->C, H->D: H bridges all paths."""
+        nodes = [{"id": "H"}, {"id": "A"}, {"id": "B"}, {"id": "C"}, {"id": "D"}]
+        edges = [
+            {"source_id": "H", "target_id": "A"},
+            {"source_id": "H", "target_id": "B"},
+            {"source_id": "H", "target_id": "C"},
+            {"source_id": "H", "target_id": "D"},
+        ]
+        result = compute_betweenness(nodes, edges)
+        assert result["H"] >= result["A"]
+
+    def test_two_nodes(self):
+        nodes = [{"id": "A"}, {"id": "B"}]
+        edges = [{"source_id": "A", "target_id": "B"}]
+        result = compute_betweenness(nodes, edges)
+        assert result["A"] == 0.0
+        assert result["B"] == 0.0
+
+    def test_empty_graph(self):
+        result = compute_betweenness([], [])
+        assert result == {}
+
+    def test_single_node(self):
+        nodes = [{"id": "A"}]
+        result = compute_betweenness(nodes, [])
+        assert result["A"] == 0.0
+
+    def test_diamond_graph(self):
+        """A->B, A->C, B->D, C->D: B and C share betweenness equally."""
+        nodes = [{"id": "A"}, {"id": "B"}, {"id": "C"}, {"id": "D"}]
+        edges = [
+            {"source_id": "A", "target_id": "B"},
+            {"source_id": "A", "target_id": "C"},
+            {"source_id": "B", "target_id": "D"},
+            {"source_id": "C", "target_id": "D"},
+        ]
+        result = compute_betweenness(nodes, edges)
+        assert abs(result["B"] - result["C"]) < 0.001
+        assert result["B"] > 0.0
