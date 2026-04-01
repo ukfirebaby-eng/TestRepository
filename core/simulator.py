@@ -5,13 +5,22 @@ plus Black Swan scenario generation via LLM.
 
 import datetime
 import json
+import random
 import re
-from collections import deque
 from typing import Any, Dict, List
 
 import numpy as np
 
 from core.agents import _get_client, _get_model
+from core.centrality import (
+    PROPAGATION_FACTORS,
+    compute_degree,
+    compute_betweenness,
+    compute_ripa,
+    compute_linkage_intensity,
+    compute_resilience,
+    probabilistic_bfs,
+)
 
 
 class BlastRadiusCalculator:
@@ -22,126 +31,123 @@ class BlastRadiusCalculator:
         self.vault = vault
 
     def run(self) -> Dict[str, Any]:
-        # ── 1. Load REQUIRES edges ──────────────────────────────────────────
         cursor = self.vault.conn.cursor()
+
+        # ── Load graph topology ─────────────────────────────────────
         cursor.execute(
-            "SELECT source_id, target_id FROM edges "
-            "WHERE document_id = ? AND relationship = 'REQUIRES'",
+            "SELECT source_id, target_id, relationship FROM edges WHERE document_id = ?",
             (self.document_id,),
         )
-        edges = cursor.fetchall()
+        edge_rows = cursor.fetchall()
+        if not edge_rows:
+            return {
+                "svi": 0.0,
+                "nodes": [],
+                "cascade_paths": [],
+                "centrality_scores": {},
+                "ripa_summary": {"total_systemic_risk": 0.0, "top_vulnerabilities": []},
+            }
 
-        # ── 2. Count all nodes ──────────────────────────────────────────────
-        all_node_ids: set = set()
-        # forward_graph[source] = [targets]  (source depends on target)
-        forward_graph: Dict[str, List[str]] = {}
-        # reverse_graph[target] = [sources]  (who depends on target)
-        reverse_graph: Dict[str, List[str]] = {}
-        # in-degree: how many nodes depend on this node (i.e. it is a target)
-        in_degree: Dict[str, int] = {}
+        edges = [
+            {"source_id": r[0], "target_id": r[1], "relationship": r[2]}
+            for r in edge_rows
+        ]
 
-        for row in edges:
-            # Try dict-style first (sqlite3.Row / mock dict), fall back to index
-            try:
-                src = row["source_id"]
-                tgt = row["target_id"]
-            except (KeyError, TypeError):
-                src = row[0]
-                tgt = row[1]
+        # Collect unique node IDs and batch-fetch names
+        all_node_ids = set()
+        for e in edges:
+            all_node_ids.add(e["source_id"])
+            all_node_ids.add(e["target_id"])
 
-            all_node_ids.add(src)
-            all_node_ids.add(tgt)
+        placeholders = ",".join("?" for _ in all_node_ids)
+        cursor.execute(
+            f"SELECT id, name FROM nodes WHERE id IN ({placeholders})",
+            list(all_node_ids),
+        )
+        name_map = {row[0]: row[1] for row in cursor.fetchall()}
+        nodes = [{"id": nid, "name": name_map.get(nid, nid)} for nid in all_node_ids]
 
-            forward_graph.setdefault(src, []).append(tgt)
-            reverse_graph.setdefault(tgt, []).append(src)
-            in_degree[tgt] = in_degree.get(tgt, 0) + 1
+        # ── Centrality metrics ──────────────────────────────────────
+        degree_scores = compute_degree(nodes, edges)
+        betweenness_scores = compute_betweenness(nodes, edges)
+        centrality_scores = {}
+        for nid in all_node_ids:
+            deg = degree_scores.get(nid, {"in_degree": 0.0, "out_degree": 0.0})
+            centrality_scores[nid] = {
+                "in_degree": round(deg["in_degree"], 4),
+                "out_degree": round(deg["out_degree"], 4),
+                "betweenness": round(betweenness_scores.get(nid, 0.0), 4),
+            }
 
-        total_nodes = len(all_node_ids)
-        if total_nodes == 0:
-            return {"svi": 0.0, "nodes": []}
+        # ── RIPA scoring ────────────────────────────────────────────
+        max_weighted_degree = sum(
+            PROPAGATION_FACTORS.get(e["relationship"], 0.15) for e in edges
+        )
+        ripa_scores = {}
+        for nid in all_node_ids:
+            deg = degree_scores.get(nid, {"in_degree": 0.0, "out_degree": 0.0})
+            n_nodes = len(nodes)
+            in_count = int(round(deg["in_degree"] * max(n_nodes - 1, 1)))
+            li = compute_linkage_intensity(nid, edges, max_weighted_degree)
+            re = compute_resilience(in_count)
+            crit = betweenness_scores.get(nid, 0.0)
+            svi = compute_ripa(li, re, crit)
+            ripa_scores[nid] = {"li": round(li, 4), "re": round(re, 4), "criticality": round(crit, 4), "svi": round(svi, 4)}
 
-        # ── 3. Find hub nodes (in-degree >= 3) ─────────────────────────────
-        hub_nodes = [node for node, deg in in_degree.items() if deg >= 3]
-        if not hub_nodes:
-            return {"svi": 0.0, "nodes": []}
+        # ── Probabilistic BFS cascade paths ─────────────────────────
+        random.seed(self.document_id)
+        all_cascade_paths = []
+        for nid in all_node_ids:
+            paths = probabilistic_bfs(nid, nodes, edges)
+            all_cascade_paths.extend(paths)
+        all_cascade_paths.sort(key=lambda p: p["cumulative_probability"], reverse=True)
+        all_cascade_paths = all_cascade_paths[:100]
 
-        max_in_degree = max(in_degree[n] for n in hub_nodes)
+        # ── Assemble result ─────────────────────────────────────────
+        enriched_nodes = []
+        for nid in all_node_ids:
+            deg = centrality_scores.get(nid, {})
+            ripa = ripa_scores.get(nid, {})
+            node_cascade = [p for p in all_cascade_paths if p["trigger_node"] == nid]
+            enriched_nodes.append({
+                "id": nid,
+                "name": name_map.get(nid, nid),
+                "svi_contribution": ripa.get("svi", 0.0),
+                "dependency_count": int(round(deg.get("in_degree", 0.0) * max(len(nodes) - 1, 1))),
+                "cascade_depth": max((p["depth"] for p in node_cascade), default=0),
+                "blast_radius_count": len(node_cascade),
+                "in_degree": deg.get("in_degree", 0.0),
+                "out_degree": deg.get("out_degree", 0.0),
+                "betweenness": deg.get("betweenness", 0.0),
+                "ripa": ripa,
+            })
 
-        # ── 7. Pre-computed cascade_nodes from fragility_lines ──────────────
-        fragility_lines = self.vault.get_fragility_lines(self.document_id)
-        precomputed_cascade: set = set()
-        for fl in fragility_lines:
-            cascade = fl.get("cascade_nodes", [])
-            if isinstance(cascade, list):
-                precomputed_cascade.update(cascade)
+        enriched_nodes.sort(key=lambda n: n["ripa"].get("svi", 0.0), reverse=True)
 
-        # ── 4 & 5. BFS + SVI per hub node ───────────────────────────────────
-        hub_results = []
+        top_svi = max((n["ripa"]["svi"] for n in enriched_nodes), default=0.0)
 
-        # Batch-fetch all hub node names in a single query (avoids N+1 round-trips)
-        if hub_nodes:
-            placeholders = ",".join("?" * len(hub_nodes))
-            cursor = self.vault.conn.cursor()
-            cursor.execute(
-                f"SELECT id, name FROM nodes WHERE id IN ({placeholders})",
-                list(hub_nodes)
-            )
-            node_name_map = {row[0]: row[1] for row in cursor.fetchall()}
-        else:
-            node_name_map = {}
+        top_vulns = [
+            {
+                "node_id": n["id"],
+                "name": n["name"],
+                "li": n["ripa"]["li"],
+                "re": n["ripa"]["re"],
+                "criticality": n["ripa"]["criticality"],
+                "svi": n["ripa"]["svi"],
+            }
+            for n in enriched_nodes[:10]
+        ]
 
-        for hub in hub_nodes:
-            # BFS on reverse_graph from hub: who would be affected if hub fails?
-            visited: set = set()
-            queue: deque = deque()
-            queue.append((hub, 0))
-            visited.add(hub)
-            max_depth = 0
-
-            while queue:
-                node, depth = queue.popleft()
-                for dependent in reverse_graph.get(node, []):
-                    if dependent not in visited:
-                        visited.add(dependent)
-                        new_depth = depth + 1
-                        if new_depth > max_depth:
-                            max_depth = new_depth
-                        queue.append((dependent, new_depth))
-
-            reachable = visited - {hub}
-            blast_radius_count = len(reachable)
-            cascade_depth = max_depth
-
-            if max_in_degree == 0:
-                svi_contribution = 0.0
-            else:
-                svi_contribution = (blast_radius_count / total_nodes) * (
-                    in_degree[hub] / max_in_degree
-                )
-
-            # Node name lookup (resolved from pre-fetched batch map)
-            node_name = node_name_map.get(hub, hub)
-
-            # newly_detected: any reachable node NOT in pre-computed cascade set
-            newly_detected = any(n not in precomputed_cascade for n in reachable)
-
-            hub_results.append(
-                {
-                    "id": hub,
-                    "name": node_name,
-                    "cascade_depth": cascade_depth,
-                    "blast_radius_count": blast_radius_count,
-                    "svi_contribution": svi_contribution,
-                    "newly_detected": newly_detected,
-                }
-            )
-
-        # ── 6. SVI total ─────────────────────────────────────────────────────
-        svi_total = min(sum(n["svi_contribution"] for n in hub_results), 1.0)
-
-        hub_results.sort(key=lambda x: x["svi_contribution"], reverse=True)
-
-        return {"svi": svi_total, "nodes": hub_results}
+        return {
+            "svi": round(top_svi, 4),
+            "nodes": enriched_nodes,
+            "cascade_paths": all_cascade_paths,
+            "centrality_scores": centrality_scores,
+            "ripa_summary": {
+                "total_systemic_risk": round(top_svi, 4),
+                "top_vulnerabilities": top_vulns,
+            },
+        }
 
 
 class BlackSwanAgent:
