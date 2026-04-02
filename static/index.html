@@ -143,6 +143,24 @@
         #toolbar-divider { width: 1px; height: 20px; background: var(--border-dim); }
         #active-doc-label { color: var(--text-secondary); font-size: 0.78rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; }
 
+        /* ── Blast radius enhancements ──────────────────────────────── */
+        .ripa-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .ripa-bar-label { width: 140px; font-size: 0.78rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ripa-bar-track { flex: 1; height: 14px; display: flex; border-radius: 3px; overflow: hidden; background: var(--bg-surface); }
+        .ripa-bar-seg { height: 100%; }
+        .ripa-bar-value { width: 48px; text-align: right; font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; color: var(--text-secondary); }
+        .cascade-item { border: 1px solid var(--border-dim); border-radius: 4px; margin-bottom: 6px; }
+        .cascade-summary {
+            padding: 8px 10px; cursor: pointer; display: flex; justify-content: space-between;
+            align-items: center; font-size: 0.8rem; color: var(--text-primary);
+        }
+        .cascade-summary:hover { background: var(--bg-hover); }
+        .cascade-prob { background: rgba(79,159,255,0.15); color: var(--accent-cyan); padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; }
+        .cascade-detail { display: none; padding: 6px 10px 10px; border-top: 1px solid var(--border-dim); font-size: 0.75rem; color: var(--text-secondary); }
+        .cascade-detail.open { display: block; }
+        .cascade-hop { padding: 2px 0; }
+        .cascade-hop-type { color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace; }
+
         /* ── Config drawer ───────────────────────────────────────────── */
         #config-btn {
             position: fixed; top: 16px; right: 16px; z-index: 20;
@@ -739,12 +757,47 @@
           </div>
         </div>
         <div id="sim-blast">
-          <h2>&#128165; Blast Radius Analysis</h2>
-          <div id="sim-svi"></div>
-          <table id="sim-blast-table">
-            <thead><tr><th>Node</th><th>Cascade Depth</th><th>Blast Radius</th><th>SVI Contribution</th></tr></thead>
-            <tbody id="sim-blast-body"></tbody>
-          </table>
+            <h2>&#128165; Blast Radius Analysis</h2>
+
+            <!-- SVI Headline -->
+            <div id="sim-svi-headline" style="text-align:center;margin:16px 0;">
+                <div id="sim-svi-value" style="font-size:3rem;font-weight:700;font-family:'JetBrains Mono',monospace;"></div>
+                <div style="color:var(--text-secondary);font-size:0.85rem;">Total Systemic Risk</div>
+            </div>
+
+            <!-- Centrality Rankings Table -->
+            <div class="cfg-section-label" style="margin-top:16px;">CENTRALITY RANKINGS</div>
+            <table id="sim-centrality-table" style="width:100%;border-collapse:collapse;margin-top:8px;font-size:0.82rem;">
+                <thead>
+                    <tr style="border-bottom:1px solid var(--border-dim);color:var(--text-secondary);">
+                        <th style="text-align:left;padding:6px 8px;">Node</th>
+                        <th style="text-align:right;padding:6px 8px;">In-Deg</th>
+                        <th style="text-align:right;padding:6px 8px;">Out-Deg</th>
+                        <th style="text-align:right;padding:6px 8px;">Betweenness</th>
+                        <th style="text-align:right;padding:6px 8px;">RIPA SVI</th>
+                    </tr>
+                </thead>
+                <tbody id="sim-centrality-body"></tbody>
+            </table>
+
+            <!-- RIPA Breakdown -->
+            <div class="cfg-section-label" style="margin-top:20px;">VULNERABILITY BREAKDOWN</div>
+            <div id="sim-ripa-bars" style="margin-top:8px;"></div>
+            <div id="sim-ripa-legend" style="display:none;margin-top:6px;font-size:0.72rem;color:var(--text-secondary);">
+                <span style="display:inline-block;width:10px;height:10px;background:#4f9fff;margin-right:3px;vertical-align:middle;"></span> Linkage
+                <span style="display:inline-block;width:10px;height:10px;background:#ff3333;margin:0 3px 0 12px;vertical-align:middle;"></span> Vulnerability
+                <span style="display:inline-block;width:10px;height:10px;background:#f0b429;margin:0 3px 0 12px;vertical-align:middle;"></span> Criticality
+            </div>
+
+            <!-- Cascade Paths -->
+            <div class="cfg-section-label" style="margin-top:20px;">CASCADE CHAINS</div>
+            <div id="sim-cascade-paths" style="margin-top:8px;"></div>
+
+            <!-- Fallback for old cached data -->
+            <div id="sim-blast-upgrade" style="display:none;text-align:center;margin:24px 0;color:var(--text-secondary);">
+                <p>Re-run simulation to see enhanced analysis</p>
+                <button class="toolbar-btn" onclick="regenerateSim()">&#8634; Re-run</button>
+            </div>
         </div>
         <div id="sim-black-swan">
           <h2>&#129442; Black Swan Scenarios</h2>
@@ -2198,50 +2251,93 @@
             const page = document.getElementById('sim-page');
             page.style.display = 'block';
 
-            // Blast Radius section
-            const sviEl = document.getElementById('sim-svi');
-            const blastBody = document.getElementById('sim-blast-body');
-            const blastSection = result && result.blast_radius;
-            if (blastSection) {
-                const sviScore = blastSection.total_svi_score;
-                sviEl.textContent = sviScore != null ? `Total SVI Score: ${sviScore}` : 'No SVI score available.';
-                blastBody.innerHTML = '';
-                const nodes = blastSection.hub_nodes || [];
-                if (nodes.length === 0) {
+            // ── Blast Radius rendering ─────────────────────────────────
+            const blastSection = result?.blast_radius;
+            if (blastSection && blastSection.ripa_summary) {
+                // SVI Headline
+                const sviVal = blastSection.ripa_summary.total_systemic_risk || 0;
+                const sviPct = Math.round(sviVal * 100);
+                const sviEl = document.getElementById('sim-svi-value');
+                sviEl.textContent = sviPct + '%';
+                sviEl.style.color = sviVal > 0.7 ? '#ff3333' : sviVal > 0.4 ? '#f0b429' : '#4caf50';
+
+                // Centrality Rankings Table
+                const cBody = document.getElementById('sim-centrality-body');
+                cBody.innerHTML = '';
+                const topNodes = (blastSection.nodes || []).slice(0, 10);
+                topNodes.forEach(node => {
+                    const svi = node.ripa?.svi || 0;
+                    const rowColor = svi > 0.7 ? 'rgba(255,51,51,0.1)' : svi > 0.4 ? 'rgba(240,180,41,0.1)' : 'transparent';
                     const row = document.createElement('tr');
-                    const td = document.createElement('td');
-                    td.colSpan = 4;
-                    td.textContent = 'No hub nodes detected.';
-                    row.appendChild(td);
-                    blastBody.appendChild(row);
-                } else {
-                    nodes.forEach(node => {
-                        const row = document.createElement('tr');
-                        const tdName = document.createElement('td');
-                        tdName.textContent = node.node || '';
-                        if (node.newly_detected) {
-                            const badge = document.createElement('span');
-                            badge.textContent = ' ★';
-                            badge.title = 'Newly detected';
-                            badge.style.cssText = 'color:#f0b429;font-size:0.8em;';
-                            tdName.appendChild(badge);
-                        }
-                        const tdDepth = document.createElement('td');
-                        tdDepth.textContent = node.cascade_depth != null ? node.cascade_depth : '';
-                        const tdRadius = document.createElement('td');
-                        tdRadius.textContent = node.blast_radius != null ? node.blast_radius : '';
-                        const tdSvi = document.createElement('td');
-                        tdSvi.textContent = node.svi_contribution != null ? node.svi_contribution : '';
-                        row.appendChild(tdName);
-                        row.appendChild(tdDepth);
-                        row.appendChild(tdRadius);
-                        row.appendChild(tdSvi);
-                        blastBody.appendChild(row);
-                    });
+                    row.style.background = rowColor;
+                    row.style.borderBottom = '1px solid var(--border-dim)';
+                    row.innerHTML = `
+                        <td style="padding:6px 8px;">${node.name || node.id}</td>
+                        <td style="text-align:right;padding:6px 8px;font-family:'JetBrains Mono',monospace;">${(node.in_degree || 0).toFixed(2)}</td>
+                        <td style="text-align:right;padding:6px 8px;font-family:'JetBrains Mono',monospace;">${(node.out_degree || 0).toFixed(2)}</td>
+                        <td style="text-align:right;padding:6px 8px;font-family:'JetBrains Mono',monospace;">${(node.betweenness || 0).toFixed(2)}</td>
+                        <td style="text-align:right;padding:6px 8px;font-family:'JetBrains Mono',monospace;color:${svi > 0.7 ? '#ff3333' : svi > 0.4 ? '#f0b429' : '#4caf50'};">${svi.toFixed(2)}</td>
+                    `;
+                    cBody.appendChild(row);
+                });
+
+                // RIPA Breakdown Bars
+                const ripaBars = document.getElementById('sim-ripa-bars');
+                ripaBars.innerHTML = '';
+                const vulns = blastSection.ripa_summary.top_vulnerabilities || [];
+                if (vulns.length > 0) {
+                    document.getElementById('sim-ripa-legend').style.display = 'block';
                 }
-            } else {
-                sviEl.textContent = 'No data';
-                blastBody.innerHTML = '';
+                vulns.slice(0, 10).forEach(v => {
+                    const total = v.li + (1 - v.re) + v.criticality;
+                    const liPct = total > 0 ? (v.li / total * 100) : 0;
+                    const rePct = total > 0 ? ((1 - v.re) / total * 100) : 0;
+                    const crPct = total > 0 ? (v.criticality / total * 100) : 0;
+                    const row = document.createElement('div');
+                    row.className = 'ripa-bar-row';
+                    row.innerHTML = `
+                        <div class="ripa-bar-label" title="${v.name}">${v.name}</div>
+                        <div class="ripa-bar-track">
+                            <div class="ripa-bar-seg" style="width:${liPct}%;background:#4f9fff;"></div>
+                            <div class="ripa-bar-seg" style="width:${rePct}%;background:#ff3333;"></div>
+                            <div class="ripa-bar-seg" style="width:${crPct}%;background:#f0b429;"></div>
+                        </div>
+                        <div class="ripa-bar-value">${v.svi.toFixed(2)}</div>
+                    `;
+                    ripaBars.appendChild(row);
+                });
+
+                // Cascade Paths
+                const cascadeEl = document.getElementById('sim-cascade-paths');
+                cascadeEl.innerHTML = '';
+                const paths = (blastSection.cascade_paths || []).slice(0, 20);
+                paths.forEach((p, idx) => {
+                    const item = document.createElement('div');
+                    item.className = 'cascade-item';
+                    const pathStr = p.path.join(' \u2192 ');
+                    const probPct = (p.cumulative_probability * 100).toFixed(1);
+                    item.innerHTML = `
+                        <div class="cascade-summary" onclick="this.nextElementSibling.classList.toggle('open')">
+                            <span>${pathStr}</span>
+                            <span class="cascade-prob">${probPct}%</span>
+                        </div>
+                        <div class="cascade-detail">
+                            ${p.hops.map(h => `<div class="cascade-hop">${h.from} <span class="cascade-hop-type">${h.edge_type}</span> \u2192 ${h.to} (${(h.probability * 100).toFixed(0)}%)</div>`).join('')}
+                        </div>
+                    `;
+                    cascadeEl.appendChild(item);
+                });
+
+                document.getElementById('sim-blast-upgrade').style.display = 'none';
+            } else if (blastSection) {
+                // Old cached data without enhanced fields
+                const sviEl = document.getElementById('sim-svi-value');
+                sviEl.textContent = blastSection.svi !== undefined ? Math.round(blastSection.svi * 100) + '%' : 'N/A';
+                sviEl.style.color = 'var(--text-secondary)';
+                document.getElementById('sim-centrality-body').innerHTML = '';
+                document.getElementById('sim-ripa-bars').innerHTML = '';
+                document.getElementById('sim-cascade-paths').innerHTML = '';
+                document.getElementById('sim-blast-upgrade').style.display = 'block';
             }
 
             // Black Swan section
