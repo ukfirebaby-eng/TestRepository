@@ -21,4 +21,9 @@ openai
 httpx
 python-dotenv
 
+# --- Report Export (PDF & Word) ---
+weasyprint>=62.0
+docxtpl>=0.18.0
+jinja2
+
 # Note: SQLite3 is part of the Python Standard Library, so it does not need to be pip installed.

@@ -733,6 +733,7 @@
           <div class="rp-actions">
             <button class="rp-btn danger" onclick="regenerateNarrative()">&#8634; Regenerate</button>
             <button class="rp-btn" onclick="downloadNarrativePdf()">&#8681; Download PDF</button>
+            <button class="rp-btn" onclick="downloadNarrativeDocx()">&#8681; Download Word</button>
             <button class="rp-btn" id="np-copy-btn" onclick="copyNarrativeText()">&#128203; Copy</button>
             <button class="rp-btn" onclick="closeNarrativePage()">&#10005; Close</button>
           </div>
@@ -2141,8 +2142,40 @@
             await openNarrativeReport();
         }
 
-        function downloadNarrativePdf() {
-            window.print();
+        async function downloadNarrativePdf() {
+            const documentId = _currentNarrativeDocumentId;
+            if (!documentId) return;
+            try {
+                const res = await fetch(`/api/v1/export/pdf/${documentId}`);
+                if (!res.ok) { showToast('PDF export failed.', 'error'); return; }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Diamond_Miner_Report_${documentId}.pdf`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                showToast('PDF export failed.', 'error');
+            }
+        }
+
+        async function downloadNarrativeDocx() {
+            const documentId = _currentNarrativeDocumentId;
+            if (!documentId) return;
+            try {
+                const res = await fetch(`/api/v1/export/docx/${documentId}`);
+                if (!res.ok) { showToast('Word export failed.', 'error'); return; }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Diamond_Miner_Report_${documentId}.docx`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                showToast('Word export failed.', 'error');
+            }
         }
 
         async function copyNarrativeText() {

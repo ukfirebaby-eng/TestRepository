@@ -4,6 +4,7 @@ import shutil
 import asyncio
 import json as _json
 import datetime
+from io import BytesIO
 from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any, List, Literal
 from core.agents import StorytellerAgent, CriticAgent, KDECoverageCheck, OutlineAgent, RecursiveDraftingAgent, ContradictionHunterAgent
 from core.simulator import BlastRadiusCalculator, BlackSwanAgent, MonteCarloForecaster
+from core.report_assembler import ReportAssembler
 
 # Import our previously written core logic
 from core.orchestrator import DiamondOrchestrator
@@ -664,6 +666,75 @@ async def generate_mitigation(
             _active_mitigations.discard(mitigation_key)
 
     return StreamingResponse(content=_stream(), media_type="text/event-stream")
+
+
+# --- Report Export Endpoints ---
+
+@app.get("/api/v1/export/pdf/{document_id}")
+async def export_pdf(document_id: str):
+    """Renders the full narrative report as a styled PDF and streams it as a download."""
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if vault.get_narrative_report(document_id) is None:
+        raise HTTPException(status_code=409, detail="Generate the narrative report first.")
+
+    assembler = ReportAssembler(vault)
+    payload = assembler.assemble(document_id)
+
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader("templates"))
+    template = env.get_template("narrative_report.html")
+    html_string = template.render(**payload)
+
+    import weasyprint
+    pdf_bytes = await asyncio.to_thread(
+        weasyprint.HTML(string=html_string).write_pdf
+    )
+
+    file_stream = BytesIO(pdf_bytes)
+    safe_name = payload["metadata"]["document_name"].replace(" ", "_").replace("/", "_")
+    return StreamingResponse(
+        file_stream,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="Diamond_Miner_Report_{safe_name}.pdf"'},
+    )
+
+
+@app.get("/api/v1/export/docx/{document_id}")
+async def export_docx(document_id: str):
+    """Renders the full narrative report as a Word document and streams it as a download."""
+    cursor = vault.conn.cursor()
+    cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    if vault.get_narrative_report(document_id) is None:
+        raise HTTPException(status_code=409, detail="Generate the narrative report first.")
+
+    assembler = ReportAssembler(vault)
+    payload = assembler.assemble(document_id)
+
+    from docxtpl import DocxTemplate
+    template_path = os.path.join("templates", "narrative_report.docx")
+    if not os.path.exists(template_path):
+        raise HTTPException(status_code=500, detail="Word template not found. Contact support.")
+
+    tpl = DocxTemplate(template_path)
+    await asyncio.to_thread(tpl.render, payload)
+
+    file_stream = BytesIO()
+    tpl.save(file_stream)
+    file_stream.seek(0)
+
+    safe_name = payload["metadata"]["document_name"].replace(" ", "_").replace("/", "_")
+    return StreamingResponse(
+        file_stream,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="Diamond_Miner_Report_{safe_name}.docx"'},
+    )
 
 
 @app.get("/api/v1/config")

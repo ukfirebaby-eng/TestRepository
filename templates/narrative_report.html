@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Diamond Miner &mdash; Full Narrative Report</title>
+<style>
+  /* ── Page Setup ── */
+  @page {
+    size: A4 portrait;
+    margin: 25mm;
+    @bottom-left  { content: "Diamond Miner \2014 Confidential"; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 8pt; color: #9CA3AF; }
+    @bottom-right { content: "Page " counter(page); font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 8pt; color: #9CA3AF; }
+  }
+
+  /* ── Base ── */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 11pt;
+    line-height: 1.5;
+    color: #1F2937;
+    background: #FFFFFF;
+  }
+
+  /* ── Typography ── */
+  h1, h2, h3, h4 {
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: #1E3A5F;
+    font-weight: 600;
+  }
+  h1 { font-size: 22pt; margin-bottom: 6px; }
+  h2 { font-size: 16pt; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid #1E3A5F; }
+  h3 { font-size: 13pt; margin-bottom: 8px; }
+
+  p { margin-bottom: 10px; text-align: left; }
+
+  /* ── Section Breaks ── */
+  .page-break { page-break-before: always; }
+
+  /* ── Cover ── */
+  .cover-eyebrow {
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: #6B7280;
+  }
+  .cover-rule {
+    width: 40px;
+    height: 2px;
+    background: #1E3A5F;
+    margin: 12px 0 20px 0;
+  }
+  .summary-cards {
+    display: flex;
+    gap: 14px;
+    margin-top: 20px;
+  }
+  .summary-card {
+    flex: 1;
+    background: #F9FAFB;
+    border: 1px solid #E5E7EB;
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+  }
+  .summary-card-label {
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #6B7280;
+  }
+  .summary-card-value {
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 14pt;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .assessment-critical { color: #DC2626; }
+  .assessment-high     { color: #D97706; }
+  .assessment-moderate  { color: #2563EB; }
+  .assessment-low      { color: #16A34A; }
+  .assessment-none     { color: #6B7280; }
+
+  /* ── Severity Badges ── */
+  .badge {
+    display: inline-block;
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 8pt;
+    font-weight: 600;
+    color: #FFFFFF;
+    padding: 2px 8px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-critical { background: #DC2626; }
+  .badge-high     { background: #D97706; }
+  .badge-medium   { background: #2563EB; }
+  .badge-low      { background: #16A34A; }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+    line-height: 1.3;
+    margin-bottom: 16px;
+  }
+  th {
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: #1E3A5F;
+    color: #FFFFFF;
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #E5E7EB;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #F9FAFB; }
+
+  /* ── Risk Heatmap ── */
+  .heatmap { margin: 16px 0; }
+  .heatmap table { width: auto; margin: 0 auto; }
+  .heatmap th, .heatmap td {
+    width: 56px;
+    height: 42px;
+    text-align: center;
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    font-weight: 600;
+  }
+  .heatmap td { border: 1px solid #E5E7EB; }
+  .heatmap th { font-size: 8pt; }
+  .hm-0 { background: #FFFFFF; color: #9CA3AF; }
+  .hm-green  { background: #DCFCE7; color: #166534; }
+  .hm-yellow { background: #FEF3C7; color: #92400E; }
+  .hm-orange { background: #FFEDD5; color: #9A3412; }
+  .hm-red    { background: #FEE2E2; color: #991B1B; }
+
+  /* ── Methodology ── */
+  .methodology {
+    font-size: 10pt;
+    color: #4B5563;
+    line-height: 1.6;
+  }
+
+  /* ── Empty-state note ── */
+  .empty-note {
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    color: #6B7280;
+    font-style: italic;
+    margin: 12px 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ COVER ═══════════════════════════ -->
+<div class="cover-eyebrow">Diamond Miner &mdash; Risk Intelligence</div>
+<h1>Full Narrative Report</h1>
+<div class="cover-rule"></div>
+
+<div class="summary-cards">
+  <div class="summary-card">
+    <div class="summary-card-label">Assessment</div>
+    <div class="summary-card-value
+      {% if 'Critical' in metadata.overall_assessment %}assessment-critical
+      {% elif 'High' in metadata.overall_assessment %}assessment-high
+      {% elif 'Moderate' in metadata.overall_assessment %}assessment-moderate
+      {% elif 'Low' in metadata.overall_assessment %}assessment-low
+      {% else %}assessment-none{% endif %}">
+      {{ metadata.overall_assessment }}
+    </div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-card-label">Document</div>
+    <div class="summary-card-value" style="font-size:11pt;color:#1F2937;">{{ metadata.document_name }}</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-card-label">Generated</div>
+    <div class="summary-card-value" style="font-size:11pt;color:#1F2937;">{{ metadata.generated_at }}</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-card-label">Issues Found</div>
+    <div class="summary-card-value" style="color:#1E3A5F;">{{ metadata.total_issues }}</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ EXECUTIVE SUMMARY ═══════════════════════ -->
+<div style="margin-top:28px;">
+  <h2>Executive Summary</h2>
+  {% if executive_summary %}
+    <p>{{ executive_summary }}</p>
+  {% else %}
+    <p class="empty-note">No executive summary available.</p>
+  {% endif %}
+</div>
+
+<!-- ═══════════════════════ RISK HEATMAP ═══════════════════════ -->
+<div class="page-break">
+  <h2>Risk Heat Map</h2>
+  {% if risk_heatmap %}
+  <div class="heatmap">
+    <table>
+      <tr>
+        <th></th>
+        <th>Sev 1</th><th>Sev 2</th><th>Sev 3</th><th>Sev 4</th><th>Sev 5</th>
+      </tr>
+      {% for prob in [5, 4, 3, 2, 1] %}
+      <tr>
+        <th>Prob {{ prob }}</th>
+        {% for sev in [1, 2, 3, 4, 5] %}
+          {% set cell = namespace(count=0) %}
+          {% for h in risk_heatmap %}
+            {% if h.severity == sev and h.probability == prob %}
+              {% set cell.count = h.count %}
+            {% endif %}
+          {% endfor %}
+          {% set risk_score = sev * prob %}
+          <td class="{% if cell.count == 0 %}hm-0{% elif risk_score >= 15 %}hm-red{% elif risk_score >= 9 %}hm-orange{% elif risk_score >= 4 %}hm-yellow{% else %}hm-green{% endif %}">
+            {% if cell.count > 0 %}{{ cell.count }}{% endif %}
+          </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% else %}
+    <p class="empty-note">Risk simulation not yet run.</p>
+  {% endif %}
+</div>
+
+<!-- ═══════════════════════ KEY FINDINGS ═══════════════════════ -->
+<div class="page-break">
+  <h2>Key Findings</h2>
+  {% if key_findings %}
+  <table>
+    <tr>
+      <th style="width:90px;">Severity</th>
+      <th>Finding</th>
+      <th>Impact</th>
+    </tr>
+    {% for f in key_findings %}
+    <tr>
+      <td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td>
+      <td style="font-weight:600;">{{ f.title }}</td>
+      <td>{{ f.impact }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <p class="empty-note">No key findings to report.</p>
+  {% endif %}
+</div>
+
+<!-- ═══════════════════════ CHAPTERS ═══════════════════════ -->
+{% for chapter in chapters %}
+<div class="page-break">
+  <h2>{{ chapter.title | default("Chapter " ~ loop.index) }}</h2>
+  <p>{{ chapter.narrative | default("") }}</p>
+</div>
+{% endfor %}
+
+<!-- ═══════════════════════ APPENDIX A: ISSUE REGISTER ═══════════════════════ -->
+<div class="page-break">
+  <h2>Appendix A: Issue Register</h2>
+  {% if issue_register %}
+  <table>
+    <tr>
+      <th style="width:80px;">Severity</th>
+      <th style="width:100px;">Type</th>
+      <th>Source</th>
+      <th>Target</th>
+      <th>Description</th>
+    </tr>
+    {% for issue in issue_register %}
+    <tr>
+      <td><span class="badge badge-{{ issue.severity }}">{{ issue.severity }}</span></td>
+      <td style="font-family:'Segoe UI',sans-serif;font-size:9pt;">{{ issue.type }}</td>
+      <td>{{ issue.source }}</td>
+      <td>{{ issue.target }}</td>
+      <td>{{ issue.description }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <p class="empty-note">No issues recorded.</p>
+  {% endif %}
+</div>
+
+<!-- ═══════════════════════ APPENDIX B: METHODOLOGY ═══════════════════════ -->
+<div class="page-break">
+  <h2>Appendix B: Methodology</h2>
+  <div class="methodology">
+    <p>{{ methodology }}</p>
+  </div>
+</div>
+
+</body>
+</html>
