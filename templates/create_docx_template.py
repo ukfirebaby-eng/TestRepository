@@ -73,12 +73,7 @@ for run in h2.runs:
     run.font.color.rgb = NAVY
     run.font.name = 'Segoe UI'
 
-# Key findings table with Jinja2 loop
-tbl_note = doc.add_paragraph()
-run = tbl_note.add_run('{%tr for f in key_findings %}')
-run.font.size = Pt(1)
-run.font.color.rgb = WHITE
-
+# Key findings table with Jinja2 loop — {%tr %} tags go INSIDE table cells
 table = doc.add_table(rows=1, cols=3)
 table.alignment = WD_TABLE_ALIGNMENT.CENTER
 table.style = 'Table Grid'
@@ -93,14 +88,10 @@ for i, text in enumerate(['Severity', 'Finding', 'Impact']):
             r.font.color.rgb = NAVY
 
 row = table.add_row()
-row.cells[0].text = '{{ f.severity }}'
+# {%tr %} tag in first cell tells docxtpl to repeat this row
+row.cells[0].text = '{%tr for f in key_findings %}{{ f.severity }}'
 row.cells[1].text = '{{ f.title }}'
-row.cells[2].text = '{{ f.impact }}'
-
-tbl_end = doc.add_paragraph()
-run = tbl_end.add_run('{%tr endfor %}')
-run.font.size = Pt(1)
-run.font.color.rgb = WHITE
+row.cells[2].text = '{{ f.impact }}{%tr endfor %}'
 
 # ── Chapters (Jinja2 loop) ──
 doc.add_page_break()
@@ -129,11 +120,6 @@ for run in h2.runs:
     run.font.color.rgb = NAVY
     run.font.name = 'Segoe UI'
 
-ir_start = doc.add_paragraph()
-run = ir_start.add_run('{%tr for issue in issue_register %}')
-run.font.size = Pt(1)
-run.font.color.rgb = WHITE
-
 ir_table = doc.add_table(rows=1, cols=5)
 ir_table.alignment = WD_TABLE_ALIGNMENT.CENTER
 ir_table.style = 'Table Grid'
@@ -148,16 +134,11 @@ for i, text in enumerate(['Severity', 'Type', 'Source', 'Target', 'Description']
             r.font.color.rgb = NAVY
 
 ir_row = ir_table.add_row()
-ir_row.cells[0].text = '{{ issue.severity }}'
+ir_row.cells[0].text = '{%tr for issue in issue_register %}{{ issue.severity }}'
 ir_row.cells[1].text = '{{ issue.type }}'
 ir_row.cells[2].text = '{{ issue.source }}'
 ir_row.cells[3].text = '{{ issue.target }}'
-ir_row.cells[4].text = '{{ issue.description }}'
-
-ir_end = doc.add_paragraph()
-run = ir_end.add_run('{%tr endfor %}')
-run.font.size = Pt(1)
-run.font.color.rgb = WHITE
+ir_row.cells[4].text = '{{ issue.description }}{%tr endfor %}'
 
 # ── Appendix B: Methodology ──
 doc.add_page_break()

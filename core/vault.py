@@ -185,17 +185,11 @@ class HybridVault:
         Embeds the text and stores it in ChromaDB along with the strict
         geometric metadata dictionary.
         """
+        bbox_meta = {"x0": bbox[0], "y0": bbox[1], "x1": bbox[2], "y1": bbox[3]} if bbox else {"x0": 0.0, "y0": 0.0, "x1": 0.0, "y1": 0.0}
         self.collection.add(
             ids=[chunk_id],
             documents=[text],
-            metadatas=[{
-                "document_id": document_id,
-                "page_number": page,
-                "x0": bbox[0],
-                "y0": bbox[1],
-                "x1": bbox[2],
-                "y1": bbox[3]
-            }]
+            metadatas=[{"document_id": document_id, "page_number": page, **bbox_meta}]
         )
 
     def insert_graph_topology(self, nodes: List[Dict[str, str]], edges: List[Dict[str, str]], source_chunk_id: str, document_id: str = "") -> None:
@@ -329,6 +323,33 @@ class HybridVault:
                 fl.get("probability", 3),
             ))
         self.conn.commit()
+
+    def clear_all(self) -> None:
+        """Wipes every table and the ChromaDB collection. Irreversible."""
+        tables = [
+            "friction_lines",
+            "fragility_lines",
+            "chronological_friction_lines",
+            "temporal_metadata",
+            "edges",
+            "nodes",
+            "executive_summaries",
+            "narrative_reports",
+            "risk_simulations",
+            "documents",
+        ]
+        with self.conn:
+            cursor = self.conn.cursor()
+            for table in tables:
+                cursor.execute(f"DELETE FROM {table}")  # noqa: S608 — table names are hardcoded
+
+        try:
+            existing = self.collection.get()
+            if existing["ids"]:
+                self.collection.delete(ids=existing["ids"])
+        except Exception as e:
+            print(f"[!] Vault: ChromaDB clear_all failed: {e}")
+            raise
 
     def delete_document(self, document_id: str) -> None:
         """

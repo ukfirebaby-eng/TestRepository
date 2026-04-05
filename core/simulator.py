@@ -50,7 +50,7 @@ class BlastRadiusCalculator:
             }
 
         edges = [
-            {"source_id": r[0], "target_id": r[1], "relationship": r[2]}
+            {"source_id": r["source_id"], "target_id": r["target_id"], "relationship": r.get("relationship", "")}
             for r in edge_rows
         ]
 
@@ -65,7 +65,7 @@ class BlastRadiusCalculator:
             f"SELECT id, name FROM nodes WHERE id IN ({placeholders})",
             list(all_node_ids),
         )
-        name_map = {row[0]: row[1] for row in cursor.fetchall()}
+        name_map = {row["id"]: row["name"] for row in cursor.fetchall()}
         nodes = [{"id": nid, "name": name_map.get(nid, nid)} for nid in all_node_ids]
 
         # ── Centrality metrics ──────────────────────────────────────

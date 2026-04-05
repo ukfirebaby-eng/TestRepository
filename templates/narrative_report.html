@@ -247,13 +247,11 @@
     <tr>
       <th style="width:90px;">Severity</th>
       <th>Finding</th>
-      <th>Impact</th>
     </tr>
     {% for f in key_findings %}
     <tr>
       <td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td>
-      <td style="font-weight:600;">{{ f.title }}</td>
-      <td>{{ f.impact }}</td>
+      <td>{{ f.finding }}</td>
     </tr>
     {% endfor %}
   </table>

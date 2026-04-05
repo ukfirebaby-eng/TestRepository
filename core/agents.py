@@ -310,7 +310,8 @@ RULES:
 1. Never use technical terms (no "node", "edge", "graph", "centrality", "vector", "contradiction").
 2. Express every issue as a business consequence (cost, compliance, delay, dependency).
 3. Use "issue" not "paradox" or "diamond".
-4. Return ONLY valid JSON matching the schema below. No markdown, no preamble.
+4. Use British English spelling and conventions throughout (e.g. "organisation", "recognised", "programme").
+5. Return ONLY valid JSON matching the schema below. No markdown, no preamble.
 
 OUTPUT SCHEMA:
 {
@@ -460,7 +461,11 @@ Return ONLY valid JSON. No markdown, no explanation."""
             if not gaps:
                 return current_draft
 
-            # Inject missing items and regenerate
+            # Inject missing items and regenerate.
+            # RecursiveDraftingAgent needs an outline to regenerate — it cannot be
+            # driven from raw_issues alone, so fall through to the coverage warning.
+            if isinstance(storyteller, RecursiveDraftingAgent):
+                break
             injected = dict(raw_issues)
             injected["_forced_inclusions"] = gaps
             current_draft = storyteller.run(injected)
@@ -741,7 +746,9 @@ class RecursiveDraftingAgent:
                     "content": (
                         "You are an Executive Risk Writer. "
                         "Write clear, authoritative prose narratives for risk report chapters. "
-                        "Do not use bullet points. Do not return JSON. Plain prose only."
+                        "Use British English spelling and conventions throughout. "
+                        "Do not use bullet points. Do not return JSON. Plain prose only. "
+                        "Do not begin your response with the chapter title."
                     ),
                 },
                 {"role": "user", "content": user_prompt},
@@ -781,7 +788,9 @@ class RecursiveDraftingAgent:
                     "content": (
                         "You are an Executive Risk Writer. "
                         "Revise risk report chapters to address identified gaps. "
-                        "Plain prose only — no bullet points, no JSON."
+                        "Use British English spelling and conventions throughout. "
+                        "Plain prose only — no bullet points, no JSON. "
+                        "Do not begin your response with the chapter title."
                     ),
                 },
                 {"role": "user", "content": user_prompt},

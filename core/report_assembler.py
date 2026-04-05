@@ -67,8 +67,9 @@ class ReportAssembler:
         # Build risk heatmap (5x5 grid)
         risk_heatmap = self._build_risk_heatmap(risk_matrix)
 
-        # Build key findings (severity >= 3, sorted critical-first)
-        key_findings = self._build_key_findings(friction, chrono)
+        # Build key findings from narrative's issues (the enriched, complete set)
+        narrative_issues = narrative.get("issues", [])
+        key_findings = self._build_key_findings(narrative_issues)
 
         # Severity counts
         total_issues = len(issue_register)
@@ -161,25 +162,30 @@ class ReportAssembler:
 
     def _build_key_findings(
         self,
-        friction: List[Dict],
-        chrono: List[Dict],
+        narrative_issues: List[Dict],
     ) -> List[Dict[str, Any]]:
         findings: List[Dict[str, Any]] = []
 
-        for item in friction + chrono:
-            sev = item.get("severity", 3)
-            if sev < 3:
-                continue
-            diamond = item.get("diamond", "")
-            # Extract a short title from the first sentence of the diamond text
-            title = diamond.split(".")[0].strip()[:120] if diamond else "Unnamed finding"
-            findings.append({
-                "severity": SEVERITY_LABELS.get(sev, "medium"),
-                "severity_num": sev,
-                "title": title,
-                "impact": diamond,
-                "recommendation": "",
-            })
+        for item in narrative_issues:
+            # Friction / chrono items have "diamond" text
+            if item.get("diamond"):
+                sev = item.get("severity", 3)
+                if not isinstance(sev, (int, float)):
+                    sev = 3
+                findings.append({
+                    "severity": SEVERITY_LABELS.get(int(sev), "medium"),
+                    "severity_num": int(sev),
+                    "finding": item["diamond"],
+                })
+            # Hub vulnerability items have "name" + "dependency_count"
+            elif item.get("name"):
+                dep_count = item.get("dependency_count", 0)
+                findings.append({
+                    "severity": "high",
+                    "severity_num": 4,
+                    "finding": f"{item['name']} is a single point of failure with {dep_count} dependent components. "
+                               f"If this node is delayed or fails, all {dep_count} downstream items are at risk.",
+                })
 
         findings.sort(key=lambda x: -x.get("severity_num", 0))
         return findings

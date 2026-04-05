@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Literal
 from core.agents import StorytellerAgent, CriticAgent, KDECoverageCheck, OutlineAgent, RecursiveDraftingAgent, ContradictionHunterAgent
 from core.simulator import BlastRadiusCalculator, BlackSwanAgent, MonteCarloForecaster
 from core.report_assembler import ReportAssembler
+from core.docx_builder import build_narrative_docx
 
 # Import our previously written core logic
 from core.orchestrator import DiamondOrchestrator
@@ -717,17 +718,7 @@ async def export_docx(document_id: str):
     assembler = ReportAssembler(vault)
     payload = assembler.assemble(document_id)
 
-    from docxtpl import DocxTemplate
-    template_path = os.path.join("templates", "narrative_report.docx")
-    if not os.path.exists(template_path):
-        raise HTTPException(status_code=500, detail="Word template not found. Contact support.")
-
-    tpl = DocxTemplate(template_path)
-    await asyncio.to_thread(tpl.render, payload)
-
-    file_stream = BytesIO()
-    tpl.save(file_stream)
-    file_stream.seek(0)
+    file_stream = await asyncio.to_thread(build_narrative_docx, payload)
 
     safe_name = payload["metadata"]["document_name"].replace(" ", "_").replace("/", "_")
     return StreamingResponse(

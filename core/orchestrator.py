@@ -1,5 +1,8 @@
 import fitz  # PyMuPDF
 import uuid
+import re
+import csv
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any
 
@@ -48,22 +51,129 @@ class DiamondOrchestrator:
                         })
         return chunks
 
+    def _parse_document(self, file_path: str) -> List[Dict[str, Any]]:
+        """Routes to the appropriate parser based on file extension."""
+        ext = Path(file_path).suffix.lower()
+        if ext == ".pdf":
+            return self._parse_pdf_with_geometry(file_path)
+        elif ext in (".txt", ".md"):
+            return self._parse_plaintext(file_path)
+        elif ext == ".docx":
+            return self._parse_docx(file_path)
+        elif ext in (".csv", ".xlsx"):
+            return self._parse_tabular(file_path)
+        elif ext == ".pptx":
+            return self._parse_pptx(file_path)
+        else:
+            raise ValueError(f"Unsupported file type: {ext}")
+
+    def _parse_plaintext(self, file_path: str) -> List[Dict[str, Any]]:
+        """Parses .txt and .md files by splitting on blank lines."""
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        # Strip Markdown syntax markers
+        content = re.sub(r"[#*_`]", "", content)
+        raw_chunks = content.split("\n\n")
+        chunks = []
+        for raw in raw_chunks:
+            text = raw.strip()
+            if len(text) > 20:
+                chunks.append({
+                    "chunk_id": str(uuid.uuid4()),
+                    "text": text,
+                    "page": 0,
+                    "bbox": None,
+                })
+        return chunks
+
+    def _parse_docx(self, file_path: str) -> List[Dict[str, Any]]:
+        """Parses .docx files by iterating paragraphs."""
+        from docx import Document
+        doc = Document(file_path)
+        chunks = []
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if len(text) > 20:
+                chunks.append({
+                    "chunk_id": str(uuid.uuid4()),
+                    "text": text,
+                    "page": 0,
+                    "bbox": None,
+                })
+        return chunks
+
+    def _parse_tabular(self, file_path: str) -> List[Dict[str, Any]]:
+        """Parses .csv and .xlsx files by grouping rows into chunks of 10."""
+        ext = Path(file_path).suffix.lower()
+        rows = []
+        if ext == ".csv":
+            with open(file_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    joined = " | ".join(cell.strip() for cell in row if cell.strip())
+                    if joined:
+                        rows.append(joined)
+        else:
+            import openpyxl
+            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            for sheet in wb.worksheets:
+                for row in sheet.iter_rows(values_only=True):
+                    joined = " | ".join(str(c).strip() for c in row if c is not None and str(c).strip())
+                    if joined:
+                        rows.append(joined)
+            wb.close()
+
+        chunks = []
+        for i in range(0, len(rows), 10):
+            text = "\n".join(rows[i:i + 10])
+            if len(text.split()) >= 5:
+                chunks.append({
+                    "chunk_id": str(uuid.uuid4()),
+                    "text": text,
+                    "page": 0,
+                    "bbox": None,
+                })
+        return chunks
+
+    def _parse_pptx(self, file_path: str) -> List[Dict[str, Any]]:
+        """Parses .pptx files; each slide maps to a page number."""
+        from pptx import Presentation
+        prs = Presentation(file_path)
+        chunks = []
+        for slide_index, slide in enumerate(prs.slides):
+            parts = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    parts.append(shape.text_frame.text.strip())
+            text = "\n".join(p for p in parts if p)
+            if len(text) > 20:
+                chunks.append({
+                    "chunk_id": str(uuid.uuid4()),
+                    "text": text,
+                    "page": slide_index + 1,
+                    "bbox": None,
+                })
+        return chunks
+
     def _process_single_chunk(self, chunk: Dict[str, Any]) -> None:
         """
         Act II: The worker function for a single thread.
         Saves semantic text, builds graph topology, and extracts temporal metadata.
+        ChromaDB insert and topology extraction are fired concurrently since they
+        are independent — this removes one full serial step per chunk.
         """
-        # 1. Store the raw text and geometry in ChromaDB
-        self.vault.insert_document_chunk(
-            chunk_id=chunk["chunk_id"],
-            document_id=self.document_id,
-            text=chunk["text"],
-            page=chunk["page"],
-            bbox=chunk["bbox"]
-        )
-
-        # 2. Structural Pass: extract topology
-        topology = DeconstructorAgent.extract_topology(chunk["text"])
+        with ThreadPoolExecutor(max_workers=2) as inner:
+            embed_future = inner.submit(
+                self.vault.insert_document_chunk,
+                chunk_id=chunk["chunk_id"],
+                document_id=self.document_id,
+                text=chunk["text"],
+                page=chunk["page"],
+                bbox=chunk["bbox"],
+            )
+            topo_future = inner.submit(DeconstructorAgent.extract_topology, chunk["text"])
+            embed_future.result()
+            topology = topo_future.result()
 
         if topology.get("nodes") and topology.get("edges"):
             self.vault.insert_graph_topology(
@@ -103,7 +213,7 @@ class DiamondOrchestrator:
         """
         self.vault.insert_document(self.document_id, self.document_name)
         self._emit(f"[*] Orchestrator: Parsing document {self.document_id}...")
-        chunks = self._parse_pdf_with_geometry(file_path)
+        chunks = self._parse_document(file_path)
         self._emit(f"[*] Orchestrator: Extracted {len(chunks)} geometric chunks. Beginning parallel Deconstruction.")
 
         # Spin up concurrent threads to blast through the document chunk-by-chunk
@@ -133,37 +243,35 @@ class DiamondOrchestrator:
 
         verified_diamonds = []
         spurious_count = 0
-        for i, conflict in enumerate(conflicts, 1):
+
+        def _verify_conflict(args):
+            i, conflict = args
             self._emit(f"    -> Verifying conflict {i}/{len(conflicts)}...")
-            # Cross over to ChromaDB to get the raw text that caused the clash
             prov_requires = self.vault.get_chunk_provenance(conflict["chunk_requires"])
             prov_blocks = self.vault.get_chunk_provenance(conflict["chunk_blocks"])
-
             combined_text = f"Claim 1: {prov_requires.get('text')}\nClaim 2: {prov_blocks.get('text')}"
-
-            # Resolve opaque IDs to human-readable names before sending to the LLM
             names = self.vault.get_node_names([conflict['node_a'], conflict['node_b'], conflict['node_c']])
             name_a = names.get(conflict['node_a'], conflict['node_a'])
             name_b = names.get(conflict['node_b'], conflict['node_b'])
             name_c = names.get(conflict['node_c'], conflict['node_c'])
             structural_clash = f'"{name_a}" REQUIRES "{name_b}", but "{name_c}" BLOCKS "{name_b}"'
-
-            # Agent verifies genuineness before committing to analysis
             result = ContradictionHunterAgent.synthesize_mitigation(structural_clash, combined_text)
+            return conflict, result
 
-            if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
-                spurious_count += 1
-                self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
-                continue
-
-            verified_diamonds.append({
-                "source": conflict["node_a"],
-                "target": conflict["node_c"],
-                "diamond": result["analysis"],
-                "provenance_ids": [conflict["chunk_requires"], conflict["chunk_blocks"]],
-                "severity": result.get("severity", 3),
-                "probability": result.get("probability", 3),
-            })
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            for conflict, result in executor.map(_verify_conflict, enumerate(conflicts, 1)):
+                if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
+                    spurious_count += 1
+                    self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
+                    continue
+                verified_diamonds.append({
+                    "source": conflict["node_a"],
+                    "target": conflict["node_c"],
+                    "diamond": result["analysis"],
+                    "provenance_ids": [conflict["chunk_requires"], conflict["chunk_blocks"]],
+                    "severity": result.get("severity", 3),
+                    "probability": result.get("probability", 3),
+                })
 
         self._emit(f"[*] Contradiction Hunter: {len(verified_diamonds)} genuine conflict(s) confirmed, {spurious_count} spurious patterns discarded.")
         self.vault.upsert_friction_lines(self.document_id, verified_diamonds)
@@ -183,38 +291,33 @@ class DiamondOrchestrator:
         verified = []
         spurious_count = 0
 
-        for i, hub in enumerate(hub_nodes, 1):
+        def _verify_hub(args):
+            i, hub = args
             self._emit(f"    -> Verifying hub {i}/{len(hub_nodes)}: {hub['name']}...")
-
-            # Resolve dependent node IDs to human-readable names.
-            # get_node_names returns only rows that exist in the nodes table;
-            # any stale edge references are silently omitted — this is intentional.
-            dependent_names = list(
-                self.vault.get_node_names(hub["dependent_node_ids"]).values()
-            )
-
-            # Get source text for this hub node via the edges table
+            dependent_names = list(self.vault.get_node_names(hub["dependent_node_ids"]).values())
             source_chunk_id = self.vault.get_node_source_chunk(hub["id"], self.document_id)
             if source_chunk_id is None:
                 self._emit(f"       [skipped — no source chunk found for hub node {hub['id']}]")
-                continue
-
+                return hub, None
             chunk_provenance = self.vault.get_chunk_provenance(source_chunk_id)
             source_text = chunk_provenance.get("text", "")
-
             result = FragilityAgent.analyse(hub["name"], dependent_names, source_text)
+            return hub, result
 
-            if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
-                spurious_count += 1
-                self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
-                continue
-
-            verified.append({
-                "hub_node_id": hub["id"],
-                "dependency_count": hub["dependency_count"],
-                "insight": result["insight"],
-                "cascade_nodes": result["cascade_nodes"]
-            })
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            for hub, result in executor.map(_verify_hub, enumerate(hub_nodes, 1)):
+                if result is None:
+                    continue
+                if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
+                    spurious_count += 1
+                    self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
+                    continue
+                verified.append({
+                    "hub_node_id": hub["id"],
+                    "dependency_count": hub["dependency_count"],
+                    "insight": result["insight"],
+                    "cascade_nodes": result["cascade_nodes"]
+                })
 
         self.vault.upsert_fragility_lines(self.document_id, verified)
         self._emit(f"[*] DLI: {len(verified)} fragility point(s) confirmed, {spurious_count} spurious patterns discarded.")
@@ -231,39 +334,39 @@ class DiamondOrchestrator:
         verified_time_diamonds = []
         spurious_count = 0
 
-        for i, conflict in enumerate(conflicts, 1):
+        def _verify_time_conflict(args):
+            i, conflict = args
             self._emit(f"    -> Verifying time conflict {i}/{len(conflicts)}...")
             prov_chunk = self.vault.get_chunk_provenance(conflict["chunk_bridge"])
-
             names = self.vault.get_node_names([conflict["predecessor"], conflict["successor"]])
             pred_name = names.get(conflict["predecessor"], conflict["predecessor"])
             succ_name = names.get(conflict["successor"], conflict["successor"])
-
             clash_payload = (
                 f"Node '{succ_name}' is scheduled to start on {conflict['succ_start']}. "
                 f"However, it MUST START AFTER Node '{pred_name}', "
                 f"which does not end until {conflict['pred_end']}."
             )
-
             result = ContradictionHunterAgent.synthesize_mitigation(
                 structural_clash=clash_payload,
                 source_text=prov_chunk.get("text", "No source text found.")
             )
+            return conflict, result
 
-            if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
-                spurious_count += 1
-                self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
-                continue
-
-            verified_time_diamonds.append({
-                "type": "chronological",
-                "source": conflict["predecessor"],
-                "target": conflict["successor"],
-                "diamond": result["analysis"],
-                "provenance_ids": [conflict["chunk_bridge"]],
-                "severity": result.get("severity", 3),
-                "probability": result.get("probability", 3),
-            })
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            for conflict, result in executor.map(_verify_time_conflict, enumerate(conflicts, 1)):
+                if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
+                    spurious_count += 1
+                    self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
+                    continue
+                verified_time_diamonds.append({
+                    "type": "chronological",
+                    "source": conflict["predecessor"],
+                    "target": conflict["successor"],
+                    "diamond": result["analysis"],
+                    "provenance_ids": [conflict["chunk_bridge"]],
+                    "severity": result.get("severity", 3),
+                    "probability": result.get("probability", 3),
+                })
 
         self._emit(f"[*] Chronos: {len(verified_time_diamonds)} genuine time conflict(s), {spurious_count} spurious discarded.")
         self.vault.upsert_chronological_friction_lines(self.document_id, verified_time_diamonds)

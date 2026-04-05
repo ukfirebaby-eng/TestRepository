@@ -14,9 +14,9 @@ def _make_mock_vault(nodes_data, edges_data, fragility_lines=None):
     # Simulate edges query: SELECT source_id, target_id, relationship FROM edges WHERE document_id = ?
     cursor.fetchall.side_effect = [
         # First call: edges query
-        [(e["source_id"], e["target_id"], e.get("relationship", "REQUIRES")) for e in edges_data],
+        [{"source_id": e["source_id"], "target_id": e["target_id"], "relationship": e.get("relationship", "REQUIRES")} for e in edges_data],
         # Second call: node names batch query
-        [(n["id"], n["name"]) for n in nodes_data],
+        [{"id": n["id"], "name": n["name"]} for n in nodes_data],
     ]
 
     vault.get_fragility_lines.return_value = fragility_lines or []
