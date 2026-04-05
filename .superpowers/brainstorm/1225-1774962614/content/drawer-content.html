@@ -1,0 +1,123 @@
+<h2>How should the drawer handle provider switching?</h2>
+<p class="subtitle">Choosing OpenAI vs OpenRouter makes one API key irrelevant. How should the drawer respond?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:220px;background:#050510;border-radius:6px;overflow:hidden;display:flex;font-family:monospace;font-size:10px;">
+        <!-- main panel dimmed -->
+        <div style="flex:1;background:#050510;opacity:0.3;padding:12px;">
+          <div style="color:#4f9fff;font-weight:bold;margin-bottom:8px;">Upload Document</div>
+          <div style="background:#0a0a20;border:1px dashed #1a1a3a;border-radius:4px;padding:24px;text-align:center;color:#555;">Drop files here</div>
+        </div>
+        <!-- drawer -->
+        <div style="width:52%;background:#0a0a1e;border-left:1px solid #2a2a5a;display:flex;flex-direction:column;">
+          <div style="padding:12px 14px 8px;border-bottom:1px solid #1a1a3a;display:flex;align-items:center;justify-content:space-between;">
+            <span style="color:#4f9fff;font-weight:bold;font-size:11px;">⚙ Configuration</span>
+            <span style="color:#666;cursor:pointer;">✕</span>
+          </div>
+          <div style="flex:1;overflow:auto;padding:10px 14px;display:flex;flex-direction:column;gap:8px;">
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;">LLM PROVIDER</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#cccccc;font-size:9px;">openrouter ▾</div>
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;margin-top:4px;">API KEYS</div>
+            <div style="color:#666;font-size:8px;">OpenAI Key</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#555;font-size:9px;">••••••••••••  👁</div>
+            <div style="color:#666;font-size:8px;">OpenRouter Key</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#cccccc;font-size:9px;">sk-or-v1-••••  👁</div>
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;margin-top:4px;">MODELS</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#cccccc;font-size:9px;">gpt-4o-mini</div>
+          </div>
+          <div style="padding:8px 14px;border-top:1px solid #1a1a3a;display:flex;justify-content:flex-end;gap:6px;">
+            <div style="background:#0a1f3a;border:1px solid #2a5a9a;border-radius:3px;padding:4px 10px;color:#60aaff;font-size:9px;">💾 Save & Restart</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Show all fields always</h3>
+      <p>Both API key fields always visible. Unused key is dimmed but still editable. Simple — no conditional logic. User can see and manage both keys at any time.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:220px;background:#050510;border-radius:6px;overflow:hidden;display:flex;font-family:monospace;font-size:10px;">
+        <div style="flex:1;background:#050510;opacity:0.3;padding:12px;">
+          <div style="color:#4f9fff;font-weight:bold;margin-bottom:8px;">Upload Document</div>
+          <div style="background:#0a0a20;border:1px dashed #1a1a3a;border-radius:4px;padding:24px;text-align:center;color:#555;">Drop files here</div>
+        </div>
+        <div style="width:52%;background:#0a0a1e;border-left:1px solid #2a2a5a;display:flex;flex-direction:column;">
+          <div style="padding:12px 14px 8px;border-bottom:1px solid #1a1a3a;display:flex;align-items:center;justify-content:space-between;">
+            <span style="color:#4f9fff;font-weight:bold;font-size:11px;">⚙ Configuration</span>
+            <span style="color:#666;cursor:pointer;">✕</span>
+          </div>
+          <div style="flex:1;overflow:auto;padding:10px 14px;display:flex;flex-direction:column;gap:8px;">
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;">LLM PROVIDER</div>
+            <!-- Toggle switch style -->
+            <div style="display:flex;gap:4px;">
+              <div style="background:#0a1f3a;border:1px solid #60aaff;border-radius:3px;padding:4px 10px;color:#60aaff;font-size:9px;">OpenRouter</div>
+              <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px 10px;color:#555;font-size:9px;">OpenAI</div>
+            </div>
+            <!-- Only shows relevant key -->
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;margin-top:4px;">OPENROUTER API KEY</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#cccccc;font-size:9px;">sk-or-v1-••••  👁</div>
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;margin-top:4px;">MODELS</div>
+            <div style="color:#666;font-size:8px;">Fast Model</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#cccccc;font-size:9px;">gpt-4o-mini</div>
+            <div style="color:#666;font-size:8px;">Smart Model</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#cccccc;font-size:9px;">nvidia/nemotron…</div>
+          </div>
+          <div style="padding:8px 14px;border-top:1px solid #1a1a3a;display:flex;justify-content:flex-end;gap:6px;">
+            <div style="background:#0a1f3a;border:1px solid #2a5a9a;border-radius:3px;padding:4px 10px;color:#60aaff;font-size:9px;">💾 Save & Restart</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Provider toggle hides irrelevant key</h3>
+      <p>OpenAI / OpenRouter shown as a pill toggle. Switching it reveals only the relevant API key field. Cleaner — no confusion about which key is active.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:220px;background:#050510;border-radius:6px;overflow:hidden;display:flex;font-family:monospace;font-size:10px;">
+        <div style="flex:1;background:#050510;opacity:0.3;padding:12px;">
+          <div style="color:#4f9fff;font-weight:bold;margin-bottom:8px;">Upload Document</div>
+          <div style="background:#0a0a20;border:1px dashed #1a1a3a;border-radius:4px;padding:24px;text-align:center;color:#555;">Drop files here</div>
+        </div>
+        <div style="width:52%;background:#0a0a1e;border-left:1px solid #2a2a5a;display:flex;flex-direction:column;">
+          <div style="padding:12px 14px 8px;border-bottom:1px solid #1a1a3a;display:flex;align-items:center;justify-content:space-between;">
+            <span style="color:#4f9fff;font-weight:bold;font-size:11px;">⚙ Configuration</span>
+            <span style="color:#666;cursor:pointer;">✕</span>
+          </div>
+          <!-- Tabs -->
+          <div style="display:flex;border-bottom:1px solid #1a1a3a;">
+            <div style="padding:5px 10px;color:#60aaff;border-bottom:2px solid #4f9fff;font-size:9px;">Provider</div>
+            <div style="padding:5px 10px;color:#555;font-size:9px;">Models</div>
+            <div style="padding:5px 10px;color:#555;font-size:9px;">Storage</div>
+          </div>
+          <div style="flex:1;overflow:auto;padding:10px 14px;display:flex;flex-direction:column;gap:8px;">
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;">PROVIDER</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#cccccc;font-size:9px;">openrouter ▾</div>
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;margin-top:4px;">API KEY</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#cccccc;font-size:9px;">sk-or-v1-••••  👁</div>
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;margin-top:4px;">OPENAI KEY (BACKUP)</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:5px 8px;color:#555;font-size:8px;">Optional — for fallback  👁</div>
+          </div>
+          <div style="padding:8px 14px;border-top:1px solid #1a1a3a;display:flex;justify-content:flex-end;gap:6px;">
+            <div style="background:#0a1f3a;border:1px solid #2a5a9a;border-radius:3px;padding:4px 10px;color:#60aaff;font-size:9px;">💾 Save & Restart</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Tabbed sections (Provider / Models / Storage)</h3>
+      <p>Settings split across three tabs. Provider tab handles the active key; Models tab has Fast/Smart model names; Storage tab has vault path. Organises a growing list of settings.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;">At <strong>http://localhost:51896</strong> — click your preference or reply in the terminal.</p>

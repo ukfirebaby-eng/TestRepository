@@ -1,0 +1,101 @@
+<h2>Design: Report Export Architecture</h2>
+<p class="subtitle">Data flow from vault to downloadable document</p>
+
+<div class="mockup">
+  <div class="mockup-header">Data Flow</div>
+  <div class="mockup-body" style="padding:24px;font-family:'Segoe UI',sans-serif;font-size:13px;color:#e6edf3;">
+
+    <!-- Row 1: Source -->
+    <div style="display:flex;justify-content:center;gap:12px;margin-bottom:8px;">
+      <div style="background:#1e3a5f;border:1px solid #2d5a8e;border-radius:6px;padding:8px 14px;text-align:center;min-width:100px;">
+        <div style="font-size:10px;color:#8bb4e0;text-transform:uppercase;">Vault</div>
+        <div style="font-weight:600;">friction_lines</div>
+      </div>
+      <div style="background:#1e3a5f;border:1px solid #2d5a8e;border-radius:6px;padding:8px 14px;text-align:center;min-width:100px;">
+        <div style="font-size:10px;color:#8bb4e0;text-transform:uppercase;">Vault</div>
+        <div style="font-weight:600;">hub_vulns</div>
+      </div>
+      <div style="background:#1e3a5f;border:1px solid #2d5a8e;border-radius:6px;padding:8px 14px;text-align:center;min-width:100px;">
+        <div style="font-size:10px;color:#8bb4e0;text-transform:uppercase;">Vault</div>
+        <div style="font-weight:600;">chrono_friction</div>
+      </div>
+      <div style="background:#1e3a5f;border:1px solid #2d5a8e;border-radius:6px;padding:8px 14px;text-align:center;min-width:100px;">
+        <div style="font-size:10px;color:#8bb4e0;text-transform:uppercase;">Vault</div>
+        <div style="font-weight:600;">risk_matrix</div>
+      </div>
+      <div style="background:#1e3a5f;border:1px solid #2d5a8e;border-radius:6px;padding:8px 14px;text-align:center;min-width:100px;">
+        <div style="font-size:10px;color:#8bb4e0;text-transform:uppercase;">Cache</div>
+        <div style="font-weight:600;">narrative_report</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#6b7280;font-size:18px;margin:4px 0;">&#8595;</div>
+
+    <!-- Row 2: Assembler -->
+    <div style="display:flex;justify-content:center;margin-bottom:8px;">
+      <div style="background:#2d1f5e;border:1px solid #5b3dbd;border-radius:8px;padding:12px 32px;text-align:center;">
+        <div style="font-size:10px;color:#b49dff;text-transform:uppercase;letter-spacing:1px;">New Module</div>
+        <div style="font-size:16px;font-weight:700;color:#d4c5ff;">ReportAssembler</div>
+        <div style="font-size:11px;color:#9b8cc4;margin-top:4px;">Gathers vault data &rarr; builds unified report payload dict</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#6b7280;font-size:18px;margin:4px 0;">&#8595;</div>
+
+    <!-- Row 3: Report Payload -->
+    <div style="display:flex;justify-content:center;margin-bottom:8px;">
+      <div style="background:#1a2e1a;border:1px solid #2d5a2d;border-radius:8px;padding:12px 24px;text-align:center;max-width:420px;">
+        <div style="font-size:10px;color:#6abf6a;text-transform:uppercase;letter-spacing:1px;">Structured Dict</div>
+        <div style="font-weight:600;color:#a3d9a3;">ReportPayload</div>
+        <div style="font-size:11px;color:#7ab87a;margin-top:4px;text-align:left;">
+          executive_summary &bull; risk_heatmap_data &bull; key_findings_table<br>
+          chapters[] &bull; issue_register[] &bull; methodology &bull; metadata
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#6b7280;font-size:18px;margin:4px 0;">&#8595; &#8595;</div>
+
+    <!-- Row 4: Two template paths -->
+    <div style="display:flex;justify-content:center;gap:32px;">
+      <div style="background:#3d1f1f;border:1px solid #8b3a3a;border-radius:8px;padding:12px 20px;text-align:center;min-width:180px;">
+        <div style="font-size:10px;color:#e08080;text-transform:uppercase;letter-spacing:1px;">Jinja2 + WeasyPrint</div>
+        <div style="font-weight:600;color:#f0a0a0;">PDF Template</div>
+        <div style="font-size:11px;color:#c07070;margin-top:4px;">templates/narrative.html</div>
+        <div style="font-size:11px;color:#c07070;">Print CSS, @page rules</div>
+      </div>
+      <div style="background:#1f2e3d;border:1px solid #3a6b8b;border-radius:8px;padding:12px 20px;text-align:center;min-width:180px;">
+        <div style="font-size:10px;color:#80b8e0;text-transform:uppercase;letter-spacing:1px;">docxtpl</div>
+        <div style="font-weight:600;color:#a0d0f0;">Word Template</div>
+        <div style="font-size:11px;color:#7098b8;margin-top:4px;">templates/narrative.docx</div>
+        <div style="font-size:11px;color:#7098b8;">Jinja2 tags in Word</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#6b7280;font-size:18px;margin:4px 0;">&#8595; &#8595;</div>
+
+    <!-- Row 5: API endpoints -->
+    <div style="display:flex;justify-content:center;gap:32px;">
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;text-align:center;">
+        <div style="font-size:11px;color:#f0f6fc;font-family:monospace;">GET /api/v1/export/pdf/{doc_id}</div>
+        <div style="font-size:10px;color:#8b949e;margin-top:2px;">StreamingResponse &rarr; .pdf</div>
+      </div>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;text-align:center;">
+        <div style="font-size:11px;color:#f0f6fc;font-family:monospace;">GET /api/v1/export/docx/{doc_id}</div>
+        <div style="font-size:10px;color:#8b949e;margin-top:2px;">StreamingResponse &rarr; .docx</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div style="margin-top:24px;padding:16px;background:rgba(255,255,255,0.05);border-radius:8px;border:1px solid rgba(255,255,255,0.1);">
+  <h3 style="margin-top:0;">Key Design Decisions</h3>
+  <ul style="color:#c9d1d9;line-height:1.8;font-size:13px;">
+    <li><strong>ReportAssembler</strong> is the single entry point &mdash; both templates consume the same payload</li>
+    <li>Templates live in <code>templates/</code> directory &mdash; design changes never touch Python</li>
+    <li>Export endpoints are <strong>GET</strong> (idempotent download), not POST &mdash; narrative must be generated first</li>
+    <li>All rendering runs in <code>asyncio.to_thread()</code> to avoid blocking the event loop</li>
+    <li>Files stream from <code>BytesIO</code> &mdash; nothing written to disk</li>
+  </ul>
+</div>

@@ -1,0 +1,116 @@
+<h2>What happens after the user saves?</h2>
+<p class="subtitle">The .env file lives on disk. The running backend loaded it at startup. Three ways to handle the gap between saving and applying.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:200px;background:#050510;border-radius:6px;overflow:hidden;display:flex;font-family:monospace;font-size:10px;">
+        <div style="flex:1;background:#050510;opacity:0.3;padding:12px;">
+          <div style="color:#4f9fff;font-weight:bold;margin-bottom:8px;">Upload Document</div>
+          <div style="background:#0a0a20;border:1px dashed #1a1a3a;border-radius:4px;padding:24px;text-align:center;color:#555;">Drop files here</div>
+        </div>
+        <div style="width:52%;background:#0a0a1e;border-left:1px solid #2a2a5a;display:flex;flex-direction:column;">
+          <div style="padding:10px 14px 8px;border-bottom:1px solid #1a1a3a;display:flex;align-items:center;justify-content:space-between;">
+            <span style="color:#4f9fff;font-weight:bold;font-size:11px;">⚙ Configuration</span>
+            <span style="color:#666;cursor:pointer;">✕</span>
+          </div>
+          <div style="flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;gap:4px;">
+              <div style="background:#0a1f3a;border:1px solid #60aaff;border-radius:3px;padding:3px 8px;color:#60aaff;font-size:8px;">OpenRouter</div>
+              <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:3px 8px;color:#555;font-size:8px;">OpenAI</div>
+            </div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px 8px;color:#555;font-size:9px;">sk-or-v1-••••  👁</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px 8px;color:#cccccc;font-size:9px;">gpt-4o-mini</div>
+            <!-- Success state -->
+            <div style="margin-top:4px;background:#0a2a0a;border:1px solid #2a6a2a;border-radius:4px;padding:6px 8px;color:#4caf50;font-size:9px;">
+              ✓ Saved to .env
+            </div>
+            <div style="background:#1a1a0a;border:1px solid #5a5a1a;border-radius:4px;padding:6px 8px;color:#ffcc00;font-size:8px;">
+              ⚠ Restart the server to apply changes:<br>
+              <span style="color:#666;font-family:monospace;">python run.py</span>
+            </div>
+          </div>
+          <div style="padding:8px 14px;border-top:1px solid #1a1a3a;display:flex;justify-content:flex-end;">
+            <div style="background:#0a1f3a;border:1px solid #2a5a9a;border-radius:3px;padding:4px 10px;color:#60aaff;font-size:9px;">💾 Save</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Save only, with restart reminder</h3>
+      <p>Writes .env immediately. Shows a yellow banner: "Restart the server to apply changes." Simple, honest, and safe — the user restarts manually via terminal.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:200px;background:#050510;border-radius:6px;overflow:hidden;display:flex;font-family:monospace;font-size:10px;">
+        <div style="flex:1;background:#050510;opacity:0.3;padding:12px;">
+          <div style="color:#4f9fff;font-weight:bold;margin-bottom:8px;">Upload Document</div>
+          <div style="background:#0a0a20;border:1px dashed #1a1a3a;border-radius:4px;padding:24px;text-align:center;color:#555;">Drop files here</div>
+        </div>
+        <div style="width:52%;background:#0a0a1e;border-left:1px solid #2a2a5a;display:flex;flex-direction:column;">
+          <div style="padding:10px 14px 8px;border-bottom:1px solid #1a1a3a;display:flex;align-items:center;justify-content:space-between;">
+            <span style="color:#4f9fff;font-weight:bold;font-size:11px;">⚙ Configuration</span>
+            <span style="color:#666;cursor:pointer;">✕</span>
+          </div>
+          <div style="flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;gap:4px;">
+              <div style="background:#0a1f3a;border:1px solid #60aaff;border-radius:3px;padding:3px 8px;color:#60aaff;font-size:8px;">OpenRouter</div>
+              <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:3px 8px;color:#555;font-size:8px;">OpenAI</div>
+            </div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px 8px;color:#555;font-size:9px;">sk-or-v1-••••  👁</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px 8px;color:#cccccc;font-size:9px;">gpt-4o-mini</div>
+          </div>
+          <div style="padding:8px 14px;border-top:1px solid #1a1a3a;display:flex;justify-content:flex-end;gap:6px;">
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px 10px;color:#9999bb;font-size:9px;">💾 Save</div>
+            <div style="background:#1a0a0a;border:1px solid #6a2a2a;border-radius:3px;padding:4px 10px;color:#ff6060;font-size:9px;">⚡ Save &amp; Restart</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Two buttons: Save / Save &amp; Restart</h3>
+      <p>Adds a <code>POST /api/v1/config/restart</code> endpoint that calls <code>os.execv</code> to relaunch the process. User chooses whether to apply immediately or just write the file.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:200px;background:#050510;border-radius:6px;overflow:hidden;display:flex;font-family:monospace;font-size:10px;">
+        <div style="flex:1;background:#050510;opacity:0.3;padding:12px;">
+          <div style="color:#4f9fff;font-weight:bold;margin-bottom:8px;">Upload Document</div>
+          <div style="background:#0a0a20;border:1px dashed #1a1a3a;border-radius:4px;padding:24px;text-align:center;color:#555;">Drop files here</div>
+        </div>
+        <div style="width:52%;background:#0a0a1e;border-left:1px solid #2a2a5a;display:flex;flex-direction:column;">
+          <div style="padding:10px 14px 8px;border-bottom:1px solid #1a1a3a;display:flex;align-items:center;justify-content:space-between;">
+            <span style="color:#4f9fff;font-weight:bold;font-size:11px;">⚙ Configuration</span>
+            <span style="color:#666;cursor:pointer;">✕</span>
+          </div>
+          <div style="flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;gap:4px;">
+              <div style="background:#0a1f3a;border:1px solid #60aaff;border-radius:3px;padding:3px 8px;color:#60aaff;font-size:8px;">OpenRouter</div>
+              <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:3px 8px;color:#555;font-size:8px;">OpenAI</div>
+            </div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px 8px;color:#555;font-size:9px;">sk-or-v1-••••  👁</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px 8px;color:#cccccc;font-size:9px;">gpt-4o-mini</div>
+            <!-- Unsaved indicator -->
+            <div style="color:#ff9800;font-size:8px;">● Unsaved changes</div>
+          </div>
+          <div style="padding:8px 14px;border-top:1px solid #1a1a3a;">
+            <div style="background:#0a1f3a;border:1px solid #2a5a9a;border-radius:3px;padding:5px;color:#60aaff;font-size:9px;text-align:center;">💾 Save &amp; Apply (hot-reload)</div>
+            <div style="color:#666;font-size:8px;text-align:center;margin-top:4px;">Reloads env vars without full restart</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Hot-reload (no restart)</h3>
+      <p>Save rewrites .env and calls a <code>POST /api/v1/config/reload</code> endpoint that calls <code>load_dotenv(override=True)</code> at runtime. No restart needed — env vars update in memory. Agents pick up new keys on their next call.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;"><strong>http://localhost:51896</strong> — click or reply in terminal.</p>

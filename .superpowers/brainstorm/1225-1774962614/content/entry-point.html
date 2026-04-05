@@ -1,0 +1,93 @@
+<h2>Where should the settings panel live?</h2>
+<p class="subtitle">Diamond Miner web UI uses a left sidebar with panel navigation. Where should the config entry point go?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;height:160px;background:#050510;border-radius:6px;overflow:hidden;font-family:monospace;font-size:11px;">
+        <div style="width:64px;background:#060612;display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:6px;">
+          <div style="color:#4f9fff;font-size:16px;">◆</div>
+          <div style="color:#7c7caa;font-size:9px;text-align:center;padding:4px;border-radius:4px;">📄<br>Upload</div>
+          <div style="color:#7c7caa;font-size:9px;text-align:center;padding:4px;border-radius:4px;">🌐<br>Canvas</div>
+          <div style="color:#7c7caa;font-size:9px;text-align:center;padding:4px;border-radius:4px;">⚠️<br>Friction</div>
+          <div style="flex:1;"></div>
+          <div style="color:#4f9fff;font-size:9px;text-align:center;padding:4px;border-radius:4px;border:1px solid #4f9fff;background:#1e2a4a;">⚙️<br>Config</div>
+        </div>
+        <div style="flex:1;padding:12px;color:#9999bb;font-size:10px;">
+          <div style="color:#4f9fff;font-weight:bold;margin-bottom:4px;">Configuration</div>
+          <div style="color:#666;margin-bottom:8px;font-size:9px;">Settings panel slides in as a full panel</div>
+          <div style="background:#0a0a20;border:1px solid #1a1a3a;border-radius:4px;padding:8px;">
+            <div style="color:#9999bb;font-size:8px;letter-spacing:1px;margin-bottom:6px;">LLM PROVIDER</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px;color:#cccccc;font-size:9px;">openrouter ▾</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Sidebar gear icon (full panel)</h3>
+      <p>⚙ icon pinned to sidebar footer. Clicking navigates to a full settings panel — same pattern as the PyQt6 desktop app. Consistent, discoverable.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;height:160px;background:#050510;border-radius:6px;overflow:hidden;font-family:monospace;font-size:11px;">
+        <div style="width:64px;background:#060612;display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:6px;">
+          <div style="color:#4f9fff;font-size:16px;">◆</div>
+          <div style="color:#7c7caa;font-size:9px;text-align:center;padding:4px;">📄<br>Upload</div>
+          <div style="color:#7c7caa;font-size:9px;text-align:center;padding:4px;">🌐<br>Canvas</div>
+        </div>
+        <div style="flex:1;padding:12px;color:#9999bb;font-size:10px;position:relative;">
+          <div style="position:absolute;top:8px;right:8px;background:#1a1a3a;border:1px solid #2a2a5a;border-radius:4px;padding:4px 8px;color:#cccccc;font-size:9px;cursor:pointer;">⚙ Settings</div>
+          <div style="color:#4f9fff;font-weight:bold;margin-bottom:4px;margin-top:24px;">Upload Document</div>
+          <div style="margin-top:8px;background:#0a0a20;border:1px dashed #1a1a3a;border-radius:4px;padding:16px;text-align:center;color:#555;font-size:9px;">Drop PDF here</div>
+          <!-- Modal overlay -->
+          <div style="position:absolute;inset:0;background:rgba(5,5,16,0.9);border-radius:6px;display:flex;align-items:center;justify-content:center;">
+            <div style="background:#0a0a20;border:1px solid #2a2a5a;border-radius:6px;padding:12px;width:90%;">
+              <div style="color:#4f9fff;font-weight:bold;font-size:10px;margin-bottom:6px;">⚙ Configuration</div>
+              <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px;color:#cccccc;font-size:8px;margin-bottom:4px;">Provider: openrouter</div>
+              <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px;color:#555;font-size:8px;">API Key: ••••••••</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Top-right button → modal overlay</h3>
+      <p>A small "⚙ Settings" button in the top-right corner of the main content area opens a modal. Config floats above the current panel without navigating away.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;height:160px;background:#050510;border-radius:6px;overflow:hidden;font-family:monospace;font-size:11px;">
+        <div style="width:64px;background:#060612;display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:6px;">
+          <div style="color:#4f9fff;font-size:16px;">◆</div>
+          <div style="color:#7c7caa;font-size:9px;text-align:center;padding:4px;">📄<br>Upload</div>
+          <div style="color:#7c7caa;font-size:9px;text-align:center;padding:4px;">🌐<br>Canvas</div>
+          <div style="flex:1;"></div>
+          <div style="color:#7c7caa;font-size:9px;text-align:center;padding:4px;">⚙️<br>Config</div>
+        </div>
+        <div style="flex:1;padding:12px;color:#9999bb;font-size:10px;position:relative;">
+          <!-- Slide-in drawer from right -->
+          <div style="color:#4f9fff;font-weight:bold;margin-bottom:4px;">Upload Document</div>
+          <div style="margin-top:8px;background:#0a0a20;border:1px dashed #1a1a3a;border-radius:4px;padding:16px;text-align:center;color:#555;font-size:9px;opacity:0.4;">Drop PDF here</div>
+          <div style="position:absolute;top:0;right:0;bottom:0;width:65%;background:#0a0a20;border-left:1px solid #2a2a5a;padding:10px;">
+            <div style="color:#4f9fff;font-weight:bold;font-size:10px;margin-bottom:6px;">⚙ Configuration</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px;color:#cccccc;font-size:8px;margin-bottom:4px;">Provider: openrouter ▾</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px;color:#555;font-size:8px;margin-bottom:4px;">API Key: ••••••••</div>
+            <div style="background:#080818;border:1px solid #1a1a3a;border-radius:3px;padding:4px;color:#555;font-size:8px;">Fast Model: gpt-4o-mini</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Sidebar gear icon → slide-in drawer</h3>
+      <p>⚙ in sidebar footer slides a settings drawer in from the right edge, overlapping the main panel. Config stays in context — close it and you're right back where you were.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;">Click to select your preferred approach, or tell me in the terminal.</p>
