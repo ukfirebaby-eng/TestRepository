@@ -103,7 +103,7 @@ def _parse_field(raw: str, field_name: str, min_val: int, max_val: int,
     return frozenset(result)
 
 
-class CronExpression:
+class CronExpression:  # @lat: [[cron-expression]]
     """Parsed 5-field cron expression with next-fire-time computation."""
 
     def __init__(self, expression: str) -> None:
@@ -134,7 +134,7 @@ class CronExpression:
             return False
         return self._day_matches(dt)
 
-    def _day_matches(self, dt: datetime) -> bool:
+    def _day_matches(self, dt: datetime) -> bool:  # @lat: [[cron-or-semantics]]
         """Evaluate day-of-month / day-of-week with OR semantics."""
         dom_match = dt.day in self._days
         # Convert Python weekday (Mon=0..Sun=6) to cron weekday (Sun=0..Sat=6)

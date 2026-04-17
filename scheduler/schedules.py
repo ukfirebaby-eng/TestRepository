@@ -15,7 +15,7 @@ from typing import Optional
 from .cron_parser import CronExpression, CronParseError  # noqa: F401 – re-export
 
 
-class Schedule(ABC):
+class Schedule(ABC):  # @lat: [[schedule-types]]
     """Abstract base for all schedule types."""
 
     @abstractmethod
@@ -31,7 +31,7 @@ class Schedule(ABC):
         """Human-readable description of the schedule."""
 
 
-class IntervalSchedule(Schedule):
+class IntervalSchedule(Schedule):  # @lat: [[schedule-types]]
     """Run repeatedly at a fixed interval."""
 
     def __init__(self, seconds: int = 0, minutes: int = 0,
@@ -72,7 +72,7 @@ class IntervalSchedule(Schedule):
         return f"every {' '.join(parts)}"
 
 
-class CronSchedule(Schedule):
+class CronSchedule(Schedule):  # @lat: [[schedule-types]]
     """Run according to a 5-field cron expression."""
 
     def __init__(self, expression: str) -> None:
@@ -89,7 +89,7 @@ class CronSchedule(Schedule):
         return f"cron '{self.expression}'"
 
 
-class OneTimeSchedule(Schedule):
+class OneTimeSchedule(Schedule):  # @lat: [[schedule-types]]
     """Run exactly once at a specific datetime."""
 
     def __init__(self, run_at: datetime) -> None:

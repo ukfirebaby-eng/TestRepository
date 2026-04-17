@@ -52,7 +52,7 @@ class ErrorCategory(Enum):
     """Uncategorised — fall back to standard scheduler defaults."""
 
 
-class ErrorClassifier:
+class ErrorClassifier:  # @lat: [[error-classification]]
     """
     Maps a raw exception to an :class:`ErrorCategory`.
 
@@ -127,7 +127,7 @@ class Violation:
     suggested_action: str
 
 
-class ViolationDetector:
+class ViolationDetector:  # @lat: [[violation-detection]]
     """
     Scans the live job registry for runtime inconsistencies.
 
@@ -335,7 +335,7 @@ class ResolutionResult:
 # ---------------------------------------------------------------------------
 
 
-class GenesisResolver:
+class GenesisResolver:  # @lat: [[genesis-resolver]]
     """
     Meta-node that orchestrates error recovery for failed jobs.
 

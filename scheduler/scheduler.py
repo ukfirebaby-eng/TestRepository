@@ -35,7 +35,7 @@ class JobNotFoundError(KeyError):
     """Raised when referencing a job name that does not exist."""
 
 
-class Scheduler:
+class Scheduler:  # @lat: [[scheduler-engine]]
     """
     Central scheduler engine.
 
@@ -69,11 +69,11 @@ class Scheduler:
         self._jobs: Dict[str, Job] = {}
         self._lock = threading.RLock()
         self._futures: Dict[str, Future] = {}
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._executor = ThreadPoolExecutor(max_workers=max_workers)  # @lat: [[thread-pool-design]]
         self._stop_event = threading.Event()
         self._loop_thread: Optional[threading.Thread] = None
         self._tick_interval = tick_interval
-        self._clock = clock or datetime.now
+        self._clock = clock or datetime.now  # @lat: [[injectable-clock]]
         self._resolver = resolver
 
     # ------------------------------------------------------------------
@@ -186,7 +186,7 @@ class Scheduler:
     # Internal scheduling loop
     # ------------------------------------------------------------------
 
-    def _scheduling_loop(self) -> None:
+    def _scheduling_loop(self) -> None:  # @lat: [[scheduler-loop]]
         while not self._stop_event.is_set():
             tick_start = self._clock()
 
@@ -227,7 +227,7 @@ class Scheduler:
                 "Job %r failed: %s", job.name, result.exception
             )
 
-    def _handle_result(self, job: Job, result) -> None:
+    def _handle_result(self, job: Job, result) -> None:  # @lat: [[result-handling]]
         """
         Process the outcome of a completed job execution.
 
@@ -328,7 +328,7 @@ class Scheduler:
             if job.status in (JobStatus.COMPLETED, JobStatus.EXPIRED)
         }
 
-    def _check_for_cycle(self, start: str) -> None:
+    def _check_for_cycle(self, start: str) -> None:  # @lat: [[dependency-graph]]
         """
         DFS cycle detection starting from `start`.
 

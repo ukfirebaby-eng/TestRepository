@@ -11,7 +11,7 @@ from typing import Any, Callable, List, Optional
 from .schedules import Schedule
 
 
-class JobStatus(Enum):
+class JobStatus(Enum):  # @lat: [[job-status]]
     PENDING   = "pending"    # Waiting for next scheduled time or dependencies
     RUNNING   = "running"    # Currently executing
     COMPLETED = "completed"  # Last execution succeeded
@@ -30,7 +30,7 @@ class JobResult:
     exception: Optional[Exception] = None
 
 
-class Job:
+class Job:  # @lat: [[job-model]]
     """
     A schedulable unit of work.
 
@@ -70,7 +70,7 @@ class Job:
     # State queries (thread-safe)
     # ------------------------------------------------------------------
 
-    def is_ready(self, now: datetime, completed_names: set) -> bool:
+    def is_ready(self, now: datetime, completed_names: set) -> bool:  # @lat: [[job-readiness]]
         """
         Return True if this job is eligible to run right now.
 
@@ -175,7 +175,7 @@ class Job:
         with self._lock:
             self.status = JobStatus.FAILED
 
-    def schedule_retry(self, retry_at: datetime) -> None:
+    def schedule_retry(self, retry_at: datetime) -> None:  # @lat: [[job-retry-logic]]
         """Put the job back into PENDING for a retry at the given time."""
         with self._lock:
             self.retry_count += 1
