@@ -1,28 +1,15 @@
-# --- Web Server & API ---
-fastapi
-uvicorn[standard]
-pydantic
+fastapi==0.135.1
+uvicorn[standard]==0.42.0
+pydantic==2.12.5
+chromadb==1.5.5
+PyMuPDF==1.27.2.2
+openai==2.29.0
+python-dotenv
 python-multipart
-
-# --- Local Vector Database (Semantic Memory) ---
-chromadb
 numpy
-
-# --- PDF Parsing & Geometric Extraction ---
-PyMuPDF>=1.24.0
-
-# --- Office Document Parsing ---
+jinja2
+weasyprint==68.1
 python-docx
 openpyxl
 python-pptx
-
-# --- AI & LLM Integration ---
-openai
-httpx
-python-dotenv
-
-# --- Report Export (PDF & Word) ---
-weasyprint>=62.0
-jinja2
-
-# Note: SQLite3 is part of the Python Standard Library, so it does not need to be pip installed.
+pytest

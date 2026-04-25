@@ -49,10 +49,14 @@ class BlastRadiusCalculator:
                 "ripa_summary": {"total_systemic_risk": 0.0, "top_vulnerabilities": []},
             }
 
-        edges = [
-            {"source_id": r["source_id"], "target_id": r["target_id"], "relationship": r.get("relationship", "")}
-            for r in edge_rows
-        ]
+        edges = []
+        for row in edge_rows:
+            relationship = row["relationship"] if "relationship" in row.keys() else ""
+            edges.append({
+                "source_id": row["source_id"],
+                "target_id": row["target_id"],
+                "relationship": relationship,
+            })
 
         # Collect unique node IDs and batch-fetch names
         all_node_ids = set()

@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
@@ -72,3 +73,34 @@ class TestIngestFileTypeValidation:
         detail = response.json()["detail"]
         # Should mention allowed formats
         assert ".pdf" in detail
+
+    def test_sanitizes_uploaded_filename_before_writing(self, client, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        escaped_path = tmp_path / "escape.pdf"
+
+        with patch("api._run_ingestion_task") as task:
+            response = client.post(
+                "/api/v1/ingest",
+                files={"file": ("../escape.pdf", b"%PDF fake", "application/pdf")},
+            )
+
+        assert response.status_code == 200
+        assert not escaped_path.exists()
+        saved_path = Path(task.call_args.args[1])
+        assert (tmp_path / "temp_uploads").resolve() in saved_path.resolve().parents
+        assert saved_path.name != "escape.pdf"
+
+    def test_rejects_upload_larger_than_limit_before_writing(self, client, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("api.MAX_UPLOAD_BYTES", 4)
+
+        with patch("api._run_ingestion_task") as task:
+            response = client.post(
+                "/api/v1/ingest",
+                files={"file": ("large.pdf", b"12345", "application/pdf")},
+            )
+
+        assert response.status_code == 413
+        assert "Upload too large" in response.json()["detail"]
+        assert not (tmp_path / "temp_uploads").exists()
+        task.assert_not_called()

@@ -105,3 +105,25 @@ class TestDeleteEndpoint:
             with TestClient(app) as c:
                 response = c.delete("/api/v1/documents/doc_missing")
         assert response.status_code == 404
+
+
+class TestClearVaultEndpoint:
+    def test_clear_vault_requires_confirmation(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.delete("/api/v1/vault")
+
+        assert response.status_code == 400
+        assert "confirm=true" in response.json()["detail"]
+        mock_vault.clear_all.assert_not_called()
+
+    def test_clear_vault_runs_when_confirmed(self):
+        mock_vault = _make_mock_vault()
+        with patch("api.vault", mock_vault):
+            with TestClient(app) as c:
+                response = c.delete("/api/v1/vault?confirm=true")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "cleared"}
+        mock_vault.clear_all.assert_called_once()

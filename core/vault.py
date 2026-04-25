@@ -699,7 +699,7 @@ class HybridVault:
 
     def save_narrative_report(self, document_id: str, report: dict, model: str) -> None:
         """Writes or overwrites the cached narrative report for a document."""
-        generated_at = datetime.utcnow().isoformat()
+        generated_at = datetime.now(timezone.utc).isoformat()
         with self._write_lock:
             cursor = self.conn.cursor()
             cursor.execute(
@@ -732,7 +732,7 @@ class HybridVault:
 
     def save_risk_simulation(self, document_id: str, result: dict) -> None:
         """Writes or overwrites the cached risk simulation result for a document."""
-        generated_at = datetime.utcnow().isoformat()
+        generated_at = datetime.now(timezone.utc).isoformat()
         with self._write_lock:
             cursor = self.conn.cursor()
             cursor.execute(

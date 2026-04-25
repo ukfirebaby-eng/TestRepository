@@ -1,5 +1,9 @@
 .worktrees/
+.env
+.pytest_cache/
+pytest-of-windo/
 __pycache__/
 *.pyc
+*.stackdump
 vaults/
 temp_uploads/

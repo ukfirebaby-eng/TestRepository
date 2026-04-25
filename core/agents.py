@@ -1,7 +1,7 @@
 import os
 import re
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from openai import OpenAI
 from typing import Dict, Any, List
 import numpy as np
@@ -352,7 +352,7 @@ Order issues: critical first, then high, then medium, then low."""
         if not all_issues:
             return {
                 "overall_assessment": "No Issues Found",
-                "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "summary_narrative": "No conflicts or risks were detected in this document.",
                 "business_impact": "",
                 "issues": [],

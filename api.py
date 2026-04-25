@@ -59,10 +59,45 @@ _active_simulations: set = set()
 # --- In-flight mitigation tracker ---
 _active_mitigations: set[str] = set()
 
+_ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".xlsx", ".csv", ".pptx"}
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
 
 def _env_path() -> Path:
     """Returns the path to the .env file co-located with api.py."""
     return Path(__file__).parent / ".env"
+
+
+def _make_temp_upload_path(filename: str) -> Path:
+    """Return a generated temp path for an allowed upload extension."""
+    ext = Path(filename or "").suffix.lower()
+    if ext not in _ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(_ALLOWED_UPLOAD_EXTENSIONS))}",
+        )
+    temp_dir = Path("./temp_uploads")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    return temp_dir / f"{uuid.uuid4().hex}{ext}"
+
+
+def _enforce_upload_size(file: UploadFile) -> None:
+    """Reject oversized uploads before writing them to disk."""
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    file.file.seek(0)
+    if size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload too large. Maximum allowed size is {MAX_UPLOAD_BYTES} bytes.",
+        )
+
+
+def _safe_report_filename(document_name: str) -> str:
+    """Restrict download filenames to portable, header-safe characters."""
+    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in document_name)
+    safe = safe.strip("._")
+    return safe or "report"
 
 
 def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id: str, document_name: str):
@@ -91,7 +126,13 @@ def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id
     except Exception as e:
         print(f"[!] Background Task Failed: {e}")
         JOB_STORE[job_id]["status"] = "failed"
+        JOB_STORE[job_id]["error_code"] = "INGESTION_FAILED"
         JOB_STORE[job_id]["error"] = str(e)
+    finally:
+        try:
+            Path(file_path).unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            JOB_STORE[job_id].setdefault("warnings", []).append(f"Temp upload cleanup failed: {cleanup_error}")
 
 
 def _gather_raw_issues(document_id: str) -> dict:
@@ -122,29 +163,19 @@ async def ingest_document(background_tasks: BackgroundTasks, file: UploadFile = 
     document_id = f"doc_{uuid.uuid4().hex[:8]}"
     tenant_id = "local_user_01"  # Hardcoded for the local desktop version
 
-    # Save the uploaded file temporarily so PyMuPDF can read it
-    temp_dir = "./temp_uploads"
-    os.makedirs(temp_dir, exist_ok=True)
-    file_path = os.path.join(temp_dir, file.filename)
+    # Validate before writing, then use a generated filename to avoid traversal/overwrite.
+    _enforce_upload_size(file)
+    file_path = _make_temp_upload_path(file.filename)
+    document_name = Path(file.filename or "upload").name
 
-    with open(file_path, "wb") as buffer:
+    with file_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-
-    # Reject unsupported file types before spending any further resources
-    _ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".xlsx", ".csv", ".pptx"}
-    ext = Path(file.filename).suffix.lower()
-    if ext not in _ALLOWED_EXTENSIONS:
-        os.remove(file_path)
-        raise HTTPException(
-            status_code=415,
-            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(_ALLOWED_EXTENSIONS))}",
-        )
 
     # Register the job
     JOB_STORE[job_id] = {"status": "pending", "document_id": document_id, "log": []}
 
     # Fire and forget
-    background_tasks.add_task(_run_ingestion_task, job_id, file_path, tenant_id, document_id, file.filename)
+    background_tasks.add_task(_run_ingestion_task, job_id, str(file_path), tenant_id, document_id, document_name)
 
     return {"job_id": job_id, "document_id": document_id, "status": "pending"}
 
@@ -188,8 +219,10 @@ async def delete_document_endpoint(document_id: str):
 
 
 @app.delete("/api/v1/vault", status_code=200)
-async def clear_vault():
+async def clear_vault(confirm: bool = Query(False)):
     """Wipes all documents, graph data, analysis results, and report caches."""
+    if not confirm:
+        raise HTTPException(status_code=400, detail="This destructive action requires confirm=true.")
     if _active_generations or _active_narratives or _active_simulations:
         raise HTTPException(status_code=409, detail="Generation in progress — cancel before clearing.")
     try:
@@ -374,7 +407,7 @@ def assemble_narrative(chapters: list, raw_issues: dict) -> dict:
 
     return {
         "overall_assessment": overall_assessment,
-        "generated_at": datetime.datetime.utcnow().isoformat(),
+        "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "executive_summary": "",
         "chapters": chapters,
         "issues": issues,
@@ -685,18 +718,25 @@ async def export_pdf(document_id: str):
     assembler = ReportAssembler(vault)
     payload = assembler.assemble(document_id)
 
-    from jinja2 import Environment, FileSystemLoader
+    try:
+        from jinja2 import Environment, FileSystemLoader
+        import weasyprint
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="WeasyPrint PDF export dependencies are not installed. Install weasyprint and its system dependencies.",
+        ) from exc
+
     env = Environment(loader=FileSystemLoader("templates"))
     template = env.get_template("narrative_report.html")
     html_string = template.render(**payload)
 
-    import weasyprint
     pdf_bytes = await asyncio.to_thread(
         weasyprint.HTML(string=html_string).write_pdf
     )
 
     file_stream = BytesIO(pdf_bytes)
-    safe_name = payload["metadata"]["document_name"].replace(" ", "_").replace("/", "_")
+    safe_name = _safe_report_filename(payload["metadata"]["document_name"])
     return StreamingResponse(
         file_stream,
         media_type="application/pdf",
@@ -720,7 +760,7 @@ async def export_docx(document_id: str):
 
     file_stream = await asyncio.to_thread(build_narrative_docx, payload)
 
-    safe_name = payload["metadata"]["document_name"].replace(" ", "_").replace("/", "_")
+    safe_name = _safe_report_filename(payload["metadata"]["document_name"])
     return StreamingResponse(
         file_stream,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

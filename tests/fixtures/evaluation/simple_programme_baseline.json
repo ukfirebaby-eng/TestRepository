@@ -1,0 +1,15 @@
+{
+  "document_id": "fixture_simple_programme",
+  "document_path": "simple_programme.md",
+  "expectations": {
+    "node_count": { "exact": 3 },
+    "edge_count": { "exact": 2 },
+    "friction_count": { "exact": 1 },
+    "chronological_friction_count": { "exact": 1 },
+    "hub_vulnerability_count": { "exact": 1 },
+    "risk_matrix_count": { "exact": 2 },
+    "narrative_chapter_count": { "exact": 1 },
+    "narrative_coverage_verified": { "exact": true },
+    "has_executive_summary": { "exact": true }
+  }
+}

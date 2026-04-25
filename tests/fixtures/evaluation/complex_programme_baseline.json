@@ -1,0 +1,15 @@
+{
+  "document_id": "fixture_complex_programme",
+  "document_path": "complex_programme.md",
+  "expectations": {
+    "node_count": { "exact": 6 },
+    "edge_count": { "exact": 5 },
+    "friction_count": { "exact": 1 },
+    "chronological_friction_count": { "exact": 1 },
+    "hub_vulnerability_count": { "exact": 2 },
+    "risk_matrix_count": { "exact": 2 },
+    "narrative_chapter_count": { "exact": 1 },
+    "narrative_coverage_verified": { "exact": true },
+    "has_executive_summary": { "exact": true }
+  }
+}

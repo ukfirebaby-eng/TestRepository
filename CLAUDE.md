@@ -134,12 +134,12 @@ All API calls use relative paths (`/api/v1/...`). SSE report streams are consume
 These versions are non-negotiable (project ADRs):
 
 ```
-fastapi==0.109.2
-uvicorn[standard]==0.27.1
-pydantic==2.6.1
-chromadb==0.4.22
-PyMuPDF==1.23.21
-openai==1.12.0
+fastapi==0.135.1
+uvicorn[standard]==0.42.0
+pydantic==2.12.5
+chromadb==1.5.5
+PyMuPDF==1.27.2.2
+openai==2.29.0
 ```
 
 ### Multi-Tenancy

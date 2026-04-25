@@ -5,6 +5,7 @@ tests/test_simulator.py — Unit tests for BlastRadiusCalculator and BlackSwanAg
 import json
 import numpy
 import pytest
+import sqlite3
 from unittest.mock import MagicMock, patch, call
 from core.simulator import BlastRadiusCalculator, BlackSwanAgent, MonteCarloForecaster
 
@@ -99,6 +100,39 @@ class TestBlastRadiusCalculator:
         assert result["svi"] == 0.0
         assert result["nodes"] == []
         assert result["cascade_paths"] == []
+
+    def test_accepts_sqlite_row_edges_from_real_vault_cursor(self):
+        """Production SQLite cursors return sqlite3.Row objects, not plain dicts."""
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript("""
+            CREATE TABLE edges (
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                relationship TEXT NOT NULL,
+                document_id TEXT NOT NULL
+            );
+            CREATE TABLE nodes (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL
+            );
+        """)
+        conn.executemany(
+            "INSERT INTO nodes (id, name) VALUES (?, ?)",
+            [("portal", "Portal"), ("identity", "Identity")],
+        )
+        conn.execute(
+            "INSERT INTO edges (source_id, target_id, relationship, document_id) VALUES (?, ?, ?, ?)",
+            ("portal", "identity", "REQUIRES", "doc_sqlite"),
+        )
+        conn.commit()
+        vault = MagicMock()
+        vault.conn = conn
+
+        result = BlastRadiusCalculator("doc_sqlite", vault).run()
+
+        assert result["svi"] >= 0.0
+        assert {node["id"] for node in result["nodes"]} == {"portal", "identity"}
 
     def test_centrality_scores_populated(self):
         """Every node should have centrality scores."""
