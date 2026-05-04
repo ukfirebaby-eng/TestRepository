@@ -37,16 +37,9 @@ If `lat check` reported errors above, resolve them before anything else:
 | `[MISSING BACKLINK]` | A section with `require-code-mention: true` has no source annotation — add `# @lat: [[id]]` to the relevant file |
 | `[DUPLICATE ID]` | Two sections share an id — rename one |
 
-### 2. Annotate changed source files
+### 2. Update lat.md/ for new concepts
 
-For each modified `.py` file in the working tree or last commit:
-
-1. Read the file and identify new or significantly changed classes and functions.
-2. Run `python -m lat search <term>` to find the relevant section.
-3. If a matching section exists, add `# @lat: [[section-id]]` on or just above the definition.
-4. If no matching section exists, create one in step 3 first, then come back and annotate.
-
-### 3. Update lat.md/ for new concepts
+`lat.md/` documents the scheduler library (`scheduler/`). Skip this step for changes to tests, examples, tooling, or configuration.
 
 For any new concept, design decision, or API surface introduced by this task:
 
@@ -65,6 +58,14 @@ For any new concept, design decision, or API surface introduced by this task:
    Body text. Cross-link with [[related-section-id]].
    ```
 4. Cross-link bidirectionally: if section A mentions B, check whether B should mention A.
+
+### 3. Annotate changed source files
+
+For each modified `scheduler/**/*.py` file in the working tree or last commit. If no such files changed, skip this step.
+
+1. Read the file and identify new or significantly changed classes and functions.
+2. Run `python -m lat search <term>` to find the relevant section (create it in step 2 first if it doesn't exist yet).
+3. Add `# @lat: [[section-id]]` on or just above the definition.
 
 ### 4. Verify
 
