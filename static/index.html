@@ -8,21 +8,21 @@
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-void:        #04080f;
-            --bg-surface:     #0c1520;
-            --bg-raised:      #111d2b;
-            --bg-hover:       #162030;
-            --bg-deep:        #060c16;
-            --border-dim:     #1c2f42;
-            --border-bright:  #2a4560;
-            --accent-cyan:    #00c8ff;
-            --accent-amber:   #ffb300;
-            --accent-red:     #ff3d5a;
-            --accent-teal:    #00e5a0;
-            --accent-chrono:  #ff9f1c;
-            --text-primary:   #ddeeff;
-            --text-secondary: #6b8fa6;
-            --text-dim:       #3a5470;
+            --bg-void:        #080a0d;
+            --bg-surface:     #12161c;
+            --bg-raised:      #1a2028;
+            --bg-hover:       #232a34;
+            --bg-deep:        #0b0e12;
+            --border-dim:     #26303b;
+            --border-bright:  #3d4a57;
+            --accent-cyan:    #64b5d9;
+            --accent-amber:   #d8a540;
+            --accent-red:     #d85a5a;
+            --accent-teal:    #56b887;
+            --accent-chrono:  #c98d3d;
+            --text-primary:   #eef2f4;
+            --text-secondary: #9aa7b2;
+            --text-dim:       #5e6a75;
         }
 
         *, *::before, *::after { box-sizing: border-box; }
@@ -32,8 +32,24 @@
         #graph-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
         #graph-container::after {
             content: ''; position: absolute; inset: 0;
-            background-image: linear-gradient(var(--border-dim) 1px, transparent 1px), linear-gradient(90deg, var(--border-dim) 1px, transparent 1px);
-            background-size: 60px 60px; opacity: 0.18; pointer-events: none; z-index: 0;
+            background:
+                radial-gradient(circle at 20% 20%, rgba(100,181,217,0.08), transparent 28%),
+                linear-gradient(var(--border-dim) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border-dim) 1px, transparent 1px);
+            background-size: auto, 90px 90px, 90px 90px; opacity: 0.13; pointer-events: none; z-index: 0;
+        }
+        #analyst-map-container {
+            width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1;
+            display: none; background:
+                radial-gradient(circle at 78% 18%, rgba(216,165,64,0.08), transparent 24%),
+                linear-gradient(140deg, #080a0d 0%, #10151b 48%, #0b0e12 100%);
+        }
+        .analyst-map { width: 100%; height: 100%; }
+        .analyst-map-empty {
+            position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+            max-width: 360px; text-align: center; color: var(--text-secondary);
+            background: rgba(18,22,28,0.9); border: 1px solid var(--border-bright);
+            border-radius: 8px; padding: 18px; font-size: 0.84rem; line-height: 1.5;
         }
 
         /* ── Upload Overlay ── */
@@ -127,12 +143,33 @@
         .doc-confirm-cancel:hover { border-color: var(--text-secondary); color: var(--text-primary); }
 
         /* ── Toolbar ── */
-        #toolbar {
-            position: absolute; top: 16px; left: 16px; z-index: 15;
-            display: none; gap: 8px; align-items: center;
-            background: rgba(12, 21, 32, 0.9); backdrop-filter: blur(10px);
-            border: 1px solid var(--border-dim); border-radius: 4px; padding: 6px 10px;
+        #command-hud {
+            position: absolute; top: 16px; left: 16px; right: 16px; z-index: 15;
+            display: none; align-items: center; justify-content: space-between; gap: 16px;
+            background: rgba(18, 22, 28, 0.88); backdrop-filter: blur(16px);
+            border: 1px solid rgba(157, 169, 180, 0.18); border-radius: 8px; padding: 10px 12px;
+            box-shadow: 0 18px 50px rgba(0,0,0,0.28);
             font-family: 'Syne', sans-serif;
+        }
+        .command-title { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .command-eyebrow { color: var(--text-secondary); font-size: 0.58rem; text-transform: uppercase; letter-spacing: 2.4px; font-weight: 800; }
+        .command-doc { color: var(--text-primary); font-size: 0.94rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+        .command-status { color: var(--accent-teal); font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; }
+        #view-mode-toggle {
+            display: none; gap: 4px; padding: 3px; border-radius: 6px;
+            background: rgba(8,10,13,0.74); border: 1px solid var(--border-dim);
+            flex-shrink: 0;
+        }
+        .view-btn {
+            background: transparent; border: 0; color: var(--text-secondary);
+            border-radius: 4px; padding: 6px 10px; cursor: pointer;
+            font-size: 0.72rem; font-family: 'Syne', sans-serif; font-weight: 700;
+            letter-spacing: 0.02em; white-space: nowrap;
+        }
+        .view-btn:hover, .view-btn.active { color: var(--text-primary); background: rgba(100,181,217,0.13); }
+        #toolbar {
+            display: flex; gap: 8px; align-items: center;
+            font-family: 'Syne', sans-serif; flex-shrink: 0;
         }
         .toolbar-btn {
             background: transparent; border: 1px solid var(--border-dim); color: var(--text-primary);
@@ -141,7 +178,7 @@
         }
         .toolbar-btn:hover { border-color: var(--accent-cyan); background: rgba(0,200,255,0.06); color: var(--accent-cyan); }
         #toolbar-divider { width: 1px; height: 20px; background: var(--border-dim); }
-        #active-doc-label { color: var(--text-secondary); font-size: 0.78rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; }
+        #active-doc-label { display: none; }
 
         /* ── Blast radius enhancements ──────────────────────────────── */
         .ripa-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -229,23 +266,99 @@
 
         /* ── Stats HUD ── */
         #stats-hud {
-            position: absolute; bottom: 20px; left: 20px; z-index: 10;
-            display: none; gap: 0;
-            background: rgba(12, 21, 32, 0.9); backdrop-filter: blur(10px);
-            border: 1px solid var(--border-bright); border-radius: 4px; padding: 8px 16px;
+            position: absolute; top: 92px; left: 16px; z-index: 10;
+            display: none; gap: 0; max-width: min(720px, calc(100vw - 440px));
+            background: rgba(18, 22, 28, 0.82); backdrop-filter: blur(14px);
+            border: 1px solid rgba(157, 169, 180, 0.16); border-radius: 8px; padding: 10px 14px;
+            box-shadow: 0 12px 36px rgba(0,0,0,0.22);
         }
         .stat-item { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0 14px; }
-        .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 1.25rem; font-weight: 500; color: var(--text-primary); line-height: 1; letter-spacing: -0.5px; }
+        .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 1.25rem; font-weight: 600; color: var(--text-primary); line-height: 1; letter-spacing: 0; }
         .stat-value.friction { color: var(--accent-red); }
         .stat-label { font-family: 'Syne', sans-serif; font-size: 0.6rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1.5px; }
         .stat-divider { width: 1px; background: var(--border-bright); align-self: stretch; }
 
+        #risk-lens-controls {
+            position: absolute; left: 16px; top: 170px; z-index: 10;
+            display: none; flex-direction: column; gap: 7px;
+            background: rgba(18, 22, 28, 0.78); backdrop-filter: blur(14px);
+            border: 1px solid rgba(157,169,180,0.15); border-radius: 8px; padding: 10px;
+        }
+        .lens-label { color: var(--text-secondary); font-size: 0.58rem; text-transform: uppercase; letter-spacing: 2px; font-weight: 800; }
+        .lens-row { display: flex; gap: 6px; flex-wrap: wrap; max-width: 430px; }
+        .lens-btn {
+            background: rgba(255,255,255,0.02); border: 1px solid var(--border-dim); color: var(--text-secondary);
+            border-radius: 5px; padding: 6px 9px; cursor: pointer; font-size: 0.72rem; font-weight: 700; font-family: 'Syne', sans-serif;
+        }
+        .lens-btn:hover, .lens-btn.active { border-color: rgba(100,181,217,0.55); color: var(--text-primary); background: rgba(100,181,217,0.12); }
+
+        #node-search-panel {
+            position: absolute; left: 16px; top: 252px; z-index: 10;
+            display: none; width: 430px; max-width: calc(100vw - 372px);
+            background: rgba(18, 22, 28, 0.78); backdrop-filter: blur(14px);
+            border: 1px solid rgba(157,169,180,0.15); border-radius: 8px; padding: 10px;
+        }
+        .node-search-row { display: flex; gap: 8px; align-items: center; }
+        #node-search-input {
+            flex: 1; min-width: 0; background: rgba(8,10,13,0.7); border: 1px solid var(--border-dim);
+            border-radius: 5px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace;
+            font-size: 0.76rem; padding: 7px 9px;
+        }
+        #node-search-input:focus { outline: none; border-color: rgba(100,181,217,0.7); }
+        #node-search-results { display: none; margin-top: 8px; max-height: 180px; overflow-y: auto; gap: 6px; flex-direction: column; }
+        .node-search-result {
+            display: flex; justify-content: space-between; gap: 10px; align-items: center;
+            border: 1px solid var(--border-dim); border-radius: 5px; padding: 7px 8px;
+            background: rgba(255,255,255,0.025); cursor: pointer; color: var(--text-primary);
+            font-size: 0.74rem;
+        }
+        .node-search-result:hover { border-color: rgba(100,181,217,0.55); background: rgba(100,181,217,0.08); }
+        .node-search-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .node-search-type { flex-shrink: 0; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; text-transform: uppercase; }
+
+        #canvas-legend {
+            position: absolute; left: 16px; bottom: 18px; z-index: 10;
+            display: none; gap: 12px; align-items: center; flex-wrap: wrap;
+            background: rgba(18, 22, 28, 0.78); backdrop-filter: blur(14px);
+            border: 1px solid rgba(157,169,180,0.15); border-radius: 8px; padding: 10px 12px;
+            color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
+        }
+        .legend-item { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+        .legend-swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .legend-line { width: 18px; height: 2px; display: inline-block; border-radius: 2px; }
+
+        #critical-attention-panel {
+            position: absolute; top: 92px; right: 16px; z-index: 10;
+            width: 340px; max-height: calc(100vh - 124px); display: none; flex-direction: column;
+            background: rgba(18, 22, 28, 0.86); backdrop-filter: blur(16px);
+            border: 1px solid rgba(157,169,180,0.16); border-radius: 8px; box-shadow: 0 18px 50px rgba(0,0,0,0.28);
+            overflow: hidden;
+        }
+        .attention-header { padding: 14px 16px 10px; border-bottom: 1px solid var(--border-dim); }
+        .attention-title { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 2.2px; color: var(--text-secondary); font-weight: 800; margin-bottom: 4px; }
+        .attention-subtitle { color: var(--text-primary); font-size: 0.92rem; font-weight: 700; }
+        #critical-attention-list { padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        .attention-item {
+            border: 1px solid var(--border-dim); background: rgba(255,255,255,0.025); border-radius: 6px; padding: 10px;
+            cursor: pointer; transition: border-color 0.16s, background 0.16s;
+        }
+        .attention-item:hover { border-color: rgba(100,181,217,0.5); background: rgba(100,181,217,0.07); }
+        .attention-type { font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+        .attention-text { color: var(--text-primary); font-size: 0.78rem; line-height: 1.4; }
+        .attention-score { color: var(--accent-red); font-weight: 800; float: right; }
+        #canvas-state-banner {
+            position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 9;
+            display: none; padding: 14px 18px; border-radius: 8px;
+            background: rgba(18,22,28,0.9); border: 1px solid var(--border-bright); color: var(--text-secondary);
+            font-size: 0.84rem; text-align: center; max-width: 360px;
+        }
+
         /* ── Side Panel ── */
         #side-panel {
             position: absolute; right: -440px; top: 0; width: 440px; height: 100vh;
-            background-color: var(--bg-surface); border-left: 1px solid var(--border-bright);
+            background-color: rgba(18,22,28,0.96); border-left: 1px solid var(--border-bright);
             z-index: 10; transition: right 0.3s ease-in-out;
-            box-shadow: -8px 0 32px rgba(0,0,0,0.7); display: flex; flex-direction: column;
+            box-shadow: -16px 0 44px rgba(0,0,0,0.55); display: flex; flex-direction: column;
         }
         #side-panel.open { right: 0; }
 
@@ -272,6 +385,10 @@
         .analysis-text { font-size: 0.87rem; line-height: 1.75; color: var(--text-primary); }
         .analysis-text p { margin: 0 0 12px; }
         .analysis-text p:last-child { margin-bottom: 0; }
+        .panel-risk-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+        .risk-pill { border: 1px solid var(--border-dim); background: rgba(255,255,255,0.03); color: var(--text-secondary); border-radius: 999px; padding: 4px 9px; font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; }
+        .risk-pill.critical { color: var(--accent-red); border-color: rgba(216,90,90,0.45); background: rgba(216,90,90,0.1); }
+        .risk-pill.timeline { color: var(--accent-chrono); border-color: rgba(201,141,61,0.45); background: rgba(201,141,61,0.1); }
 
         /* Node info panel */
         .node-info-label { font-family: 'Syne', sans-serif; font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; margin: 0 0 6px; }
@@ -323,11 +440,25 @@
         #toast.show { opacity: 1; }
 
         /* ── Time-Scrubber ── */
+        #timeline-drawer {
+            position: absolute; right: 16px; bottom: 18px; width: 340px; z-index: 11;
+            display: none; background: rgba(18,22,28,0.88); backdrop-filter: blur(14px);
+            border: 1px solid rgba(157,169,180,0.16); border-radius: 8px; overflow: hidden;
+            box-shadow: 0 12px 36px rgba(0,0,0,0.26);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .timeline-drawer.collapsed #timeline-container { display: none !important; }
+        #timeline-toggle {
+            width: 100%; display: flex; justify-content: space-between; align-items: center;
+            background: transparent; border: none; border-bottom: 1px solid var(--border-dim);
+            color: var(--text-primary); padding: 9px 12px; cursor: pointer;
+            font-family: 'Syne', sans-serif; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; font-size: 0.62rem;
+        }
+        #timeline-toggle span:last-child { color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; font-weight: 400; text-transform: none; letter-spacing: 0; }
         #timeline-container {
-            position: absolute; bottom: 20px; left: 600px; right: 20px; width: auto;
-            background-color: rgba(12, 21, 32, 0.9); padding: 14px 28px;
-            border-radius: 4px; border: 1px solid var(--border-dim); z-index: 10;
-            display: none; backdrop-filter: blur(10px); font-family: 'JetBrains Mono', monospace;
+            width: auto; background-color: transparent; padding: 12px;
+            border-radius: 0; border: none; z-index: 10;
+            display: none; font-family: 'JetBrains Mono', monospace;
         }
         #timeline-container label {
             display: flex; justify-content: space-between; color: var(--text-secondary);
@@ -342,8 +473,9 @@
             background: var(--bg-surface); border-top: 1px solid var(--border-bright);
             transform: translateY(100%); transition: transform 0.35s ease-in-out;
             max-height: 55vh; display: flex; flex-direction: column;
+            visibility: hidden; pointer-events: none;
         }
-        #reporting-dashboard.open { transform: translateY(0); }
+        #reporting-dashboard.open { transform: translateY(0); visibility: visible; pointer-events: auto; }
 
         .dashboard-header {
             display: flex; align-items: center; justify-content: space-between;
@@ -553,7 +685,7 @@
 
         /* Print styles */
         @media print {
-            #toolbar, #report-page .rp-actions { display: none !important; }
+            #command-hud, #toolbar, #report-page .rp-actions { display: none !important; }
             #report-page { position: static !important; overflow: visible !important; }
             .rp-body { max-width: 100%; padding: 0; }
             body { background: #fff !important; color: #000 !important; }
@@ -561,10 +693,24 @@
             .rp-title, .rp-health-text, .rp-means-text, .rp-issue-title { color: #000 !important; }
             .rp-issue-desc, .rp-solution-text { color: #333 !important; }
         }
+
+        @media (max-width: 1100px) {
+            #command-hud { align-items: flex-start; flex-direction: column; }
+            #view-mode-toggle { order: 2; }
+            #toolbar { flex-wrap: wrap; }
+            #stats-hud { top: 150px; max-width: calc(100vw - 32px); overflow-x: auto; }
+            #risk-lens-controls { top: 230px; max-width: calc(100vw - 32px); }
+            #node-search-panel { top: 312px; width: auto; max-width: none; right: 16px; }
+            #critical-attention-panel { top: auto; left: 16px; right: 16px; bottom: 76px; width: auto; max-height: 34vh; }
+            #canvas-legend { display: none !important; }
+            #timeline-drawer { left: 16px; right: 16px; width: auto; }
+            #side-panel { width: min(420px, 92vw); right: min(-420px, -92vw); }
+        }
     </style>
 
     <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
     <script src="https://unpkg.com/3d-force-graph@1.73.1"></script>
+    <script src="https://unpkg.com/cytoscape@3.31.2/dist/cytoscape.min.js"></script>
 </head>
 <body>
 
@@ -642,15 +788,26 @@
         </div>
     </div>
 
-    <div id="toolbar">
-        <button class="toolbar-btn" onclick="showOverlay()">&#128196; Documents</button>
-        <button class="toolbar-btn" id="report-btn" onclick="toggleDashboard()">&#128202; Report</button>
-        <button class="toolbar-btn" id="plain-english-btn" style="display:none" onclick="openPlainEnglishReport()">&#128203; Plain English</button>
-        <button class="toolbar-btn" id="narrative-btn" style="display:none" onclick="openNarrativeReport()">&#128214; Full Narrative</button>
-        <button class="toolbar-btn" id="sim-btn" style="display:none" onclick="openRiskSimulator()">&#127919; Risk Simulator</button>
-        <div id="toolbar-divider"></div>
-        <span id="active-doc-label"></span>
-        <span id="friction-badge" style="display:none;"></span>
+    <div id="command-hud">
+        <div class="command-title">
+            <div class="command-eyebrow">Diamond Miner Spatial Canvas</div>
+            <div class="command-doc" id="command-doc-name">No document selected</div>
+            <div class="command-status" id="command-status">Awaiting analysis</div>
+        </div>
+        <div id="view-mode-toggle" class="view-toggle" aria-label="Canvas view mode">
+            <button class="view-btn active" data-view="spatial" onclick="switchCanvasView('spatial')">Spatial Canvas</button>
+            <button class="view-btn" data-view="analyst" onclick="switchCanvasView('analyst')">Analyst Map</button>
+        </div>
+        <div id="toolbar">
+            <button class="toolbar-btn" onclick="showOverlay()">&#128196; Documents</button>
+            <button class="toolbar-btn" id="report-btn" onclick="toggleDashboard()">&#128202; Report</button>
+            <button class="toolbar-btn" id="plain-english-btn" style="display:none" onclick="openPlainEnglishReport()">&#128203; Plain English</button>
+            <button class="toolbar-btn" id="narrative-btn" style="display:none" onclick="openNarrativeReport()">&#128214; Full Narrative</button>
+            <button class="toolbar-btn" id="sim-btn" style="display:none" onclick="openRiskSimulator()">&#127919; Risk Simulator</button>
+            <div id="toolbar-divider"></div>
+            <span id="active-doc-label"></span>
+            <span id="friction-badge" style="display:none;"></span>
+        </div>
     </div>
 
     <div id="stats-hud">
@@ -680,15 +837,59 @@
         </div>
     </div>
 
-    <div id="graph-container"></div>
+    <div id="risk-lens-controls">
+        <div class="lens-label">Risk Lens</div>
+        <div class="lens-row">
+            <button class="lens-btn active" data-lens="overview" onclick="applyRiskLens('overview')">Overview</button>
+            <button class="lens-btn" data-lens="structural" onclick="applyRiskLens('structural')">Structural</button>
+            <button class="lens-btn" data-lens="fragility" onclick="applyRiskLens('fragility')">Fragility</button>
+            <button class="lens-btn" data-lens="timeline" onclick="applyRiskLens('timeline')">Timeline</button>
+            <button class="lens-btn" data-lens="high-risk" onclick="applyRiskLens('high-risk')">High Risk</button>
+        </div>
+    </div>
 
-    <div id="timeline-container">
-        <label>
-            <span id="timeline-start">Project Start</span>
-            <span id="timeline-current">&#128197; Showing all</span>
-            <span id="timeline-end">Project End</span>
-        </label>
-        <input type="range" id="time-slider" min="1" max="36" value="36" step="1">
+    <div id="node-search-panel">
+        <div class="node-search-row">
+            <input id="node-search-input" type="search" placeholder="Search nodes by name or type" oninput="handleNodeSearch(this.value)" autocomplete="off">
+            <button class="toolbar-btn" onclick="clearGraphSelection()">Clear</button>
+        </div>
+        <div id="node-search-results"></div>
+    </div>
+
+    <div id="canvas-legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:#64b5d9;"></span> Standard node</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#d8a540;"></span> Fragility hub</span>
+        <span class="legend-item"><span class="legend-line" style="background:#d85a5a;"></span> Structural risk</span>
+        <span class="legend-item"><span class="legend-line" style="background:#c98d3d;"></span> Timeline risk</span>
+        <span class="legend-item">Click nodes and risk links for detail</span>
+    </div>
+
+    <div id="critical-attention-panel">
+        <div class="attention-header">
+            <div class="attention-title">Critical Attention</div>
+            <div class="attention-subtitle">Highest-priority signals</div>
+        </div>
+        <div id="critical-attention-list"></div>
+    </div>
+
+    <div id="canvas-state-banner"></div>
+
+    <div id="graph-container"></div>
+    <div id="analyst-map-container"></div>
+
+    <div id="timeline-drawer" class="timeline-drawer collapsed">
+        <button id="timeline-toggle" onclick="toggleTimelineDrawer()">
+            <span>Timeline Lens</span>
+            <span id="timeline-toggle-state">Collapsed</span>
+        </button>
+        <div id="timeline-container">
+            <label>
+                <span id="timeline-start">Project Start</span>
+                <span id="timeline-current">&#128197; Showing all</span>
+                <span id="timeline-end">Project End</span>
+            </label>
+            <input type="range" id="time-slider" min="1" max="36" value="36" step="1">
+        </div>
     </div>
 
     <div id="side-panel">
@@ -864,6 +1065,14 @@
         let activeFragility = null;
         let chronologicalFrictionNodeIds = new Set();
         let activeChronological = null;
+        let activeRiskLens = 'overview';
+        let highRiskNodeIds = new Set();
+        let highRiskLinkKeys = new Set();
+        let currentCanvasPayload = null;
+        let selectedNodeId = null;
+        let selectedLinkKey = null;
+        let activeCanvasView = 'spatial';
+        let analystMap = null;
         const globalShaderTime = { value: 0 };
         // animateShader RAF loop intentionally omitted until a ShaderMaterial reads globalShaderTime
         let graphLinks = [];
@@ -947,7 +1156,7 @@
                                     if (doc.id === activeDocumentId) {
                                         activeDocumentId = null;
                                         Graph.graphData({ nodes: [], links: [] });
-                                        document.getElementById('toolbar').style.display = 'none';
+                                        document.getElementById('command-hud').style.display = 'none';
                                         document.getElementById('stats-hud').style.display = 'none';
                                         showOverlay();
                                     }
@@ -973,6 +1182,11 @@
 
         function showOverlay() {
             closePanel();
+            switchCanvasView('spatial', { silent: true });
+            ['command-hud', 'view-mode-toggle', 'stats-hud', 'risk-lens-controls', 'node-search-panel', 'canvas-legend', 'critical-attention-panel', 'timeline-drawer', 'canvas-state-banner', 'analyst-map-container'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
             dropZone.style.display = 'block';
             telemetry.style.display = 'none';
             retryBtn.style.display  = 'none';
@@ -1206,34 +1420,497 @@
 
         // ── 3. WebGL Graph ──
         // THREE is available as a global from the 3d-force-graph CDN bundle
+        function nodeIsInActiveLens(node) {
+            if (activeRiskLens === 'overview') return true;
+            if (activeRiskLens === 'structural') return frictionNodeIds.has(node.id);
+            if (activeRiskLens === 'fragility') return fragilityNodeIds.has(node.id);
+            if (activeRiskLens === 'timeline') return chronologicalFrictionNodeIds.has(node.id);
+            if (activeRiskLens === 'high-risk') return highRiskNodeIds.has(node.id);
+            return true;
+        }
+
+        function linkKey(link) {
+            const src = link.source?.id || link.source;
+            const tgt = link.target?.id || link.target;
+            return `${src}::${tgt}::${link.diamond || link.relationship || ''}`;
+        }
+
+        function linkIsInActiveLens(link) {
+            if (activeRiskLens === 'overview') return true;
+            if (activeRiskLens === 'structural') return !!link.isFriction;
+            if (activeRiskLens === 'fragility') {
+                const src = link.source?.id || link.source;
+                const tgt = link.target?.id || link.target;
+                return fragilityNodeIds.has(src) || fragilityNodeIds.has(tgt);
+            }
+            if (activeRiskLens === 'timeline') return !!link.isChronologicalFriction;
+            if (activeRiskLens === 'high-risk') return highRiskLinkKeys.has(linkKey(link));
+            return true;
+        }
+
+        function nodeRiskColor(node) {
+            if (selectedNodeId === node.id) return '#eef2f4';
+            if (!nodeIsInActiveLens(node)) return '#38424d';
+            if (fragilityNodeIds.has(node.id)) return '#d8a540';
+            if (highRiskNodeIds.has(node.id)) return '#d85a5a';
+            if (chronologicalFrictionNodeIds.has(node.id)) return '#c98d3d';
+            if (frictionNodeIds.has(node.id)) return '#c76f54';
+            return '#64b5d9';
+        }
+
+        function linkRiskColor(link) {
+            if (selectedLinkKey === linkKey(link)) return '#eef2f4';
+            if (!linkIsInActiveLens(link)) return 'rgba(82,94,105,0.22)';
+            if (link.isChronologicalFriction) return '#c98d3d';
+            if (link.isFriction) return '#d85a5a';
+            if (activeRiskLens === 'fragility') return 'rgba(216,165,64,0.48)';
+            return 'rgba(126,145,158,0.32)';
+        }
+
+        function issueScore(item) {
+            return (Number(item.severity || 0) * Number(item.probability || 0)) || Number(item.severity || 0) || 0;
+        }
+
+        function focusNodeById(nodeId) {
+            const node = Graph.graphData().nodes.find(n => n.id === nodeId);
+            if (!node || node.x === undefined) return;
+            Graph.cameraPosition({ x: node.x, y: node.y, z: node.z + 320 }, node, 1200);
+        }
+
+        function focusLink(link) {
+            const src = link.source || {};
+            const tgt = link.target || {};
+            const sx = src.x ?? 0;
+            const sy = src.y ?? 0;
+            const sz = src.z ?? 0;
+            const tx = tgt.x ?? sx;
+            const ty = tgt.y ?? sy;
+            const tz = tgt.z ?? sz;
+            const midpoint = { x: (sx + tx) / 2, y: (sy + ty) / 2, z: (sz + tz) / 2 };
+            Graph.cameraPosition({ x: midpoint.x, y: midpoint.y, z: midpoint.z + 240 }, midpoint, 1200);
+        }
+
+        function selectGraphNode(node, openPanel = true) {
+            selectedNodeId = node?.id || null;
+            selectedLinkKey = null;
+            refreshGraphEncoding();
+            refreshAnalystMapEncoding();
+            if (node?.id) focusNodeById(node.id);
+            if (openPanel && node) openNodePanel(node, false);
+        }
+
+        function selectGraphLink(link) {
+            selectedNodeId = null;
+            selectedLinkKey = linkKey(link);
+            refreshGraphEncoding();
+            refreshAnalystMapEncoding();
+            focusLink(link);
+        }
+
+        function clearGraphSelection() {
+            selectedNodeId = null;
+            selectedLinkKey = null;
+            const input = document.getElementById('node-search-input');
+            if (input) input.value = '';
+            renderNodeSearchResults([]);
+            refreshGraphEncoding();
+            refreshAnalystMapEncoding();
+        }
+
+        function handleNodeSearch(query) {
+            const term = String(query || '').trim().toLowerCase();
+            if (term.length < 2) {
+                renderNodeSearchResults([]);
+                return;
+            }
+            const matches = Graph.graphData().nodes
+                .filter(node => `${node.name || ''} ${node.label || ''} ${node.id || ''}`.toLowerCase().includes(term))
+                .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)))
+                .slice(0, 8);
+            renderNodeSearchResults(matches);
+        }
+
+        function renderNodeSearchResults(nodes) {
+            const results = document.getElementById('node-search-results');
+            if (!results) return;
+            results.innerHTML = '';
+            if (!nodes.length) {
+                results.style.display = 'none';
+                return;
+            }
+            results.style.display = 'flex';
+            nodes.forEach(node => {
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.className = 'node-search-result';
+                row.innerHTML = `
+                    <span class="node-search-name">${escHtml(node.name || node.id)}</span>
+                    <span class="node-search-type">${escHtml(node.label || 'node')}</span>
+                `;
+                row.addEventListener('click', () => {
+                    selectGraphNode(node);
+                    results.style.display = 'none';
+                });
+                results.appendChild(row);
+            });
+        }
+
+        function toggleTimelineDrawer() {
+            const drawer = document.getElementById('timeline-drawer');
+            const state = document.getElementById('timeline-toggle-state');
+            const collapsed = drawer.classList.toggle('collapsed');
+            state.textContent = collapsed ? 'Collapsed' : 'Expanded';
+        }
+
+        function refreshGraphEncoding() {
+            Graph
+                .nodeVal(node => {
+                    if (selectedNodeId === node.id) return 16;
+                    if (fragilityNodeIds.has(node.id)) return 18;
+                    if (highRiskNodeIds.has(node.id)) return 14;
+                    if (frictionNodeIds.has(node.id) || chronologicalFrictionNodeIds.has(node.id)) return 10;
+                    return 6;
+                })
+                .nodeColor(nodeRiskColor)
+                .linkColor(linkRiskColor)
+                .linkWidth(link => {
+                    if (selectedLinkKey === linkKey(link)) return 5;
+                    if (!linkIsInActiveLens(link)) return 0.2;
+                    if (link.isFriction || link.isChronologicalFriction) return 3;
+                    return activeRiskLens === 'overview' ? 0.45 : 0.85;
+                })
+                .linkDirectionalParticles(link => linkIsInActiveLens(link) && (link.isFriction || link.isChronologicalFriction) ? 4 : 0);
+            refreshAnalystMapEncoding();
+        }
+
+        function applyRiskLens(lens) {
+            activeRiskLens = lens || 'overview';
+            document.querySelectorAll('.lens-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.lens === activeRiskLens);
+            });
+            refreshGraphEncoding();
+            const banner = document.getElementById('canvas-state-banner');
+            const labels = {
+                overview: 'Showing the full knowledge graph.',
+                structural: 'Focusing on structural contradictions and their source nodes.',
+                fragility: 'Focusing on hub vulnerabilities and their dependency neighborhoods.',
+                timeline: 'Focusing on chronological conflicts and temporal pressure.',
+                'high-risk': 'Focusing on the highest severity/probability issues.'
+            };
+            banner.textContent = labels[activeRiskLens] || labels.overview;
+            banner.style.display = 'block';
+            clearTimeout(window._canvasBannerTimer);
+            window._canvasBannerTimer = setTimeout(() => { banner.style.display = 'none'; }, 1800);
+        }
+
+        function updateCanvasHud(payload) {
+            const nodes = payload.nodes || [];
+            const edges = payload.edges || [];
+            const friction = payload.friction_lines || [];
+            const chrono = payload.chronological_friction_lines || [];
+            const fragility = payload.fragility_lines || [];
+            const highRiskCount = [...friction, ...chrono].filter(item => issueScore(item) >= 12 || Number(item.severity || 0) >= 4).length;
+
+            document.getElementById('command-doc-name').textContent = activeDocumentName || activeDocumentId || 'Loaded document';
+            document.getElementById('command-status').textContent = `${nodes.length.toLocaleString()} nodes analysed · ${highRiskCount.toLocaleString()} high-risk signal${highRiskCount === 1 ? '' : 's'}`;
+            document.getElementById('stat-nodes').textContent = nodes.length.toLocaleString();
+            document.getElementById('stat-edges').textContent = edges.length.toLocaleString();
+            document.getElementById('stat-friction').textContent = friction.length.toLocaleString();
+            document.getElementById('stat-fragility').textContent = fragility.length.toLocaleString();
+            document.getElementById('stat-chronological').textContent = chrono.length.toLocaleString();
+        }
+
+        function renderCriticalAttention(payload) {
+            const list = document.getElementById('critical-attention-list');
+            const graphData = Graph.graphData();
+            const items = [];
+
+            (payload.friction_lines || []).forEach(item => {
+                items.push({ type: 'Structural risk', text: item.diamond || 'Structural conflict detected.', score: issueScore(item), source: item.source, target: item.target, mode: 'friction', item });
+            });
+            (payload.chronological_friction_lines || []).forEach(item => {
+                items.push({ type: 'Timeline risk', text: item.diamond || 'Timeline conflict detected.', score: issueScore(item), source: item.source, target: item.target, mode: 'chrono', item });
+            });
+            (payload.fragility_lines || []).forEach(item => {
+                items.push({ type: 'Fragility hub', text: item.insight || 'Hub vulnerability detected.', score: Number(item.dependency_count || 0), source: item.hub_node_id, mode: 'fragility', item });
+            });
+
+            items.sort((a, b) => b.score - a.score);
+            list.innerHTML = '';
+
+            if (!items.length) {
+                list.innerHTML = '<div class="attention-item" style="cursor:default;"><div class="attention-type">No critical signals</div><div class="attention-text">No structural, timeline, or fragility risks were returned for this document.</div></div>';
+                return;
+            }
+
+            items.slice(0, 8).forEach(entry => {
+                const div = document.createElement('div');
+                div.className = 'attention-item';
+                div.innerHTML = `
+                    <div class="attention-type">${escHtml(entry.type)} <span class="attention-score">${escHtml(String(entry.score || ''))}</span></div>
+                    <div class="attention-text">${escHtml(entry.text).slice(0, 170)}${entry.text && entry.text.length > 170 ? '&hellip;' : ''}</div>
+                `;
+                div.addEventListener('click', () => {
+                    if (entry.mode === 'fragility') {
+                        const node = graphData.nodes.find(n => n.id === entry.source);
+                        if (node) openFragilityPanel(entry.item, node);
+                        focusNodeById(entry.source);
+                        return;
+                    }
+                    const match = graphData.links.find(l => {
+                        const src = l.source?.id || l.source;
+                        const tgt = l.target?.id || l.target;
+                        return src === entry.source && tgt === entry.target && l.diamond === entry.item.diamond;
+                    });
+                    if (match) {
+                        if (entry.mode === 'chrono') openChronologicalPanel(match);
+                        else openFrictionPanel(match);
+                    } else {
+                        focusNodeById(entry.source);
+                    }
+                });
+                list.appendChild(div);
+            });
+        }
+
+        function graphNodeById(nodeId) {
+            return Graph.graphData().nodes.find(n => n.id === nodeId);
+        }
+
+        function analystNodeInLens(nodeId) {
+            if (activeRiskLens === 'overview') return true;
+            if (activeRiskLens === 'structural') return frictionNodeIds.has(nodeId);
+            if (activeRiskLens === 'fragility') return fragilityNodeIds.has(nodeId);
+            if (activeRiskLens === 'timeline') return chronologicalFrictionNodeIds.has(nodeId);
+            if (activeRiskLens === 'high-risk') return highRiskNodeIds.has(nodeId);
+            return true;
+        }
+
+        function analystEdgeInLens(edgeData) {
+            if (activeRiskLens === 'overview') return true;
+            if (activeRiskLens === 'structural') return edgeData.riskKind === 'structural';
+            if (activeRiskLens === 'fragility') return fragilityNodeIds.has(edgeData.source) || fragilityNodeIds.has(edgeData.target);
+            if (activeRiskLens === 'timeline') return edgeData.riskKind === 'timeline';
+            if (activeRiskLens === 'high-risk') return highRiskLinkKeys.has(edgeData.key);
+            return true;
+        }
+
+        function buildAnalystElements(payload) {
+            const nodes = payload?.nodes || [];
+            const nodeIds = new Set(nodes.map(n => n.id));
+            const elements = [];
+
+            nodes.forEach(node => {
+                elements.push({
+                    data: {
+                        id: node.id,
+                        name: node.name || node.id,
+                        label: node.label || 'node',
+                        riskClass: fragilityNodeIds.has(node.id) ? 'fragility'
+                            : highRiskNodeIds.has(node.id) ? 'high'
+                            : chronologicalFrictionNodeIds.has(node.id) ? 'timeline'
+                            : frictionNodeIds.has(node.id) ? 'structural'
+                            : 'standard'
+                    }
+                });
+            });
+
+            function addEdge(link, index, riskKind) {
+                const source = link.source?.id || link.source;
+                const target = link.target?.id || link.target;
+                if (!nodeIds.has(source) || !nodeIds.has(target)) return;
+                const key = `${source}::${target}::${link.diamond || link.relationship || ''}`;
+                elements.push({
+                    data: {
+                        id: `${riskKind || 'edge'}-${index}-${source}-${target}`.replace(/[^A-Za-z0-9_-]/g, '_'),
+                        source,
+                        target,
+                        relationship: link.relationship || '',
+                        diamond: link.diamond || '',
+                        severity: link.severity || '',
+                        probability: link.probability || '',
+                        riskKind: riskKind || 'standard',
+                        key
+                    }
+                });
+            }
+
+            (payload?.edges || []).forEach((link, index) => addEdge(link, index, 'standard'));
+            (payload?.friction_lines || []).forEach((link, index) => addEdge(link, index, 'structural'));
+            (payload?.chronological_friction_lines || []).forEach((link, index) => addEdge(link, index, 'timeline'));
+            return elements;
+        }
+
+        function refreshAnalystMapEncoding() {
+            if (!analystMap) return;
+            analystMap.nodes().forEach(node => {
+                const data = node.data();
+                node.toggleClass('dimmed', !analystNodeInLens(data.id));
+                node.toggleClass('selected', data.id === selectedNodeId);
+            });
+            analystMap.edges().forEach(edge => {
+                const data = edge.data();
+                edge.toggleClass('dimmed', !analystEdgeInLens(data));
+                edge.toggleClass('selected', data.key === selectedLinkKey);
+            });
+        }
+
+        function openAnalystEdge(edgeData) {
+            const source = graphNodeById(edgeData.source) || { id: edgeData.source, name: edgeData.source };
+            const target = graphNodeById(edgeData.target) || { id: edgeData.target, name: edgeData.target };
+            const liveLink = Graph.graphData().links.find(link => {
+                const src = link.source?.id || link.source;
+                const tgt = link.target?.id || link.target;
+                return src === edgeData.source && tgt === edgeData.target &&
+                    (link.diamond || link.relationship || '') === (edgeData.diamond || edgeData.relationship || '');
+            });
+            const link = liveLink || {
+                source,
+                target,
+                diamond: edgeData.diamond,
+                relationship: edgeData.relationship,
+                severity: edgeData.severity,
+                probability: edgeData.probability,
+                isFriction: edgeData.riskKind === 'structural',
+                isChronologicalFriction: edgeData.riskKind === 'timeline'
+            };
+            selectGraphLink(link);
+            if (edgeData.riskKind === 'timeline') openChronologicalPanel(link);
+            else if (edgeData.riskKind === 'structural') openFrictionPanel(link);
+        }
+
+        function renderAnalystMap(payload) {
+            const container = document.getElementById('analyst-map-container');
+            if (!container) return;
+            if (!window.cytoscape) {
+                container.innerHTML = '<div class="analyst-map-empty">Analyst Map is unavailable because the graph layout library did not load.</div>';
+                return;
+            }
+
+            const elements = buildAnalystElements(payload);
+            if (!elements.length) {
+                container.innerHTML = '<div class="analyst-map-empty">No graph elements are available for this document.</div>';
+                return;
+            }
+
+            container.innerHTML = '<div class="analyst-map"></div>';
+            const mapEl = container.querySelector('.analyst-map');
+            if (analystMap) analystMap.destroy();
+            analystMap = cytoscape({
+                container: mapEl,
+                elements,
+                wheelSensitivity: 0.18,
+                layout: { name: 'cose', animate: false, padding: 90, nodeRepulsion: 180000, idealEdgeLength: 92, edgeElasticity: 0.14 },
+                style: [
+                    {
+                        selector: 'node',
+                        style: {
+                            'background-color': ele => {
+                                const riskClass = ele.data('riskClass');
+                                if (riskClass === 'fragility') return '#d8a540';
+                                if (riskClass === 'high') return '#d85a5a';
+                                if (riskClass === 'timeline') return '#c98d3d';
+                                if (riskClass === 'structural') return '#c76f54';
+                                return '#64b5d9';
+                            },
+                            'border-color': '#10151b',
+                            'border-width': 1.5,
+                            'color': '#eef2f4',
+                            'font-family': 'JetBrains Mono, monospace',
+                            'font-size': 8,
+                            'label': 'data(name)',
+                            'min-zoomed-font-size': 6,
+                            'overlay-opacity': 0,
+                            'text-background-color': '#12161c',
+                            'text-background-opacity': 0.82,
+                            'text-background-padding': 3,
+                            'text-margin-y': -8,
+                            'text-wrap': 'wrap',
+                            'text-max-width': 92,
+                            'width': ele => ele.data('riskClass') === 'fragility' ? 24 : ele.data('riskClass') === 'high' ? 20 : 14,
+                            'height': ele => ele.data('riskClass') === 'fragility' ? 24 : ele.data('riskClass') === 'high' ? 20 : 14
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'curve-style': 'bezier',
+                            'line-color': ele => ele.data('riskKind') === 'timeline' ? '#c98d3d' : ele.data('riskKind') === 'structural' ? '#d85a5a' : 'rgba(126,145,158,0.38)',
+                            'target-arrow-color': ele => ele.data('riskKind') === 'timeline' ? '#c98d3d' : ele.data('riskKind') === 'structural' ? '#d85a5a' : 'rgba(126,145,158,0.38)',
+                            'target-arrow-shape': 'triangle',
+                            'width': ele => ele.data('riskKind') === 'standard' ? 1 : 2.6,
+                            'opacity': 0.74
+                        }
+                    },
+                    { selector: '.dimmed', style: { 'opacity': 0.16 } },
+                    { selector: 'node.selected', style: { 'border-color': '#eef2f4', 'border-width': 4, 'width': 28, 'height': 28 } },
+                    { selector: 'edge.selected', style: { 'line-color': '#eef2f4', 'target-arrow-color': '#eef2f4', 'width': 4, 'opacity': 1 } }
+                ]
+            });
+
+            analystMap.on('tap', 'node', event => {
+                const node = graphNodeById(event.target.data('id'));
+                if (node) selectGraphNode(node);
+                refreshAnalystMapEncoding();
+            });
+            analystMap.on('tap', 'edge', event => {
+                openAnalystEdge(event.target.data());
+                refreshAnalystMapEncoding();
+            });
+            refreshAnalystMapEncoding();
+            analystMap.fit(undefined, 72);
+        }
+
+        function switchCanvasView(view, options = {}) {
+            activeCanvasView = view === 'analyst' ? 'analyst' : 'spatial';
+            const graphContainer = document.getElementById('graph-container');
+            const analystContainer = document.getElementById('analyst-map-container');
+            if (graphContainer) graphContainer.style.display = activeCanvasView === 'spatial' ? '' : 'none';
+            if (analystContainer) analystContainer.style.display = activeCanvasView === 'analyst' ? 'block' : 'none';
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === activeCanvasView);
+            });
+            if (activeCanvasView === 'analyst' && currentCanvasPayload) {
+                renderAnalystMap(currentCanvasPayload);
+            }
+            if (!options.silent) {
+                const banner = document.getElementById('canvas-state-banner');
+                if (banner) {
+                    banner.textContent = activeCanvasView === 'analyst'
+                        ? 'Analyst Map shows a flatter dependency view for scanning clusters and risk paths.'
+                        : 'Spatial Canvas restores the interactive 3D risk topology.';
+                    banner.style.display = 'block';
+                    clearTimeout(window._canvasBannerTimer);
+                    window._canvasBannerTimer = setTimeout(() => { banner.style.display = 'none'; }, 1800);
+                }
+            }
+        }
+
         const Graph = ForceGraph3D()
             (document.getElementById('graph-container'))
-            .backgroundColor('#04080f')
-            .nodeVal(node => fragilityNodeIds.has(node.id) ? 20 : 8)
-            .nodeColor(node => fragilityNodeIds.has(node.id) ? '#f5c542' : (frictionNodeIds.has(node.id) ? '#ffb300' : '#1e90d4'))
+            .backgroundColor('#080a0d')
+            .nodeVal(node => fragilityNodeIds.has(node.id) ? 18 : 6)
+            .nodeColor(nodeRiskColor)
             .nodeOpacity(0.9)
             .nodeThreeObjectExtend(true)
             .nodeThreeObject(node => {
                 if (!fragilityNodeIds.has(node.id)) return null;
                 const halo = new THREE.Mesh(
-                    new THREE.SphereGeometry(14, 16, 16),
-                    new THREE.MeshBasicMaterial({ color: '#f5c542', transparent: true, opacity: 0.15, depthWrite: false })
+                    new THREE.SphereGeometry(16, 18, 18),
+                    new THREE.MeshBasicMaterial({ color: '#d8a540', transparent: true, opacity: 0.16, depthWrite: false })
                 );
                 return halo;
             })
-            .nodeLabel(node => `<span style="background:#0c1520;padding:4px 8px;border-radius:4px;font-size:12px;font-family:'JetBrains Mono',monospace;color:#ddeeff;">${node.name}</span>`)
-            .linkWidth(link => (link.isFriction || link.isChronologicalFriction) ? 2.5 : 0.4)
-            .linkColor(link => {
-                if (link.isChronologicalFriction) return '#ff9f1c';
-                if (link.isFriction) return '#ff3d5a';
-                return '#1e3448';
-            })
+            .nodeLabel(node => `<span style="background:#12161c;border:1px solid #3d4a57;padding:6px 9px;border-radius:5px;font-size:12px;font-family:'JetBrains Mono',monospace;color:#eef2f4;">${escHtml(node.name || node.id)}</span>`)
+            .linkWidth(link => (link.isFriction || link.isChronologicalFriction) ? 3 : 0.45)
+            .linkColor(linkRiskColor)
             .linkDirectionalParticles(link => (link.isFriction || link.isChronologicalFriction) ? 4 : 0)
             .linkDirectionalParticleWidth(link => link.isChronologicalFriction ? 1.5 : 2)
             .linkDirectionalParticleSpeed(link => link.isChronologicalFriction ? 0.003 : 0.005)
-            .linkDirectionalParticleColor(link => link.isChronologicalFriction ? '#ff9f1c' : '#ff3d5a')
-            .onNodeClick(node => openNodePanel(node))
+            .linkDirectionalParticleColor(link => link.isChronologicalFriction ? '#c98d3d' : '#d85a5a')
+            .onNodeClick(node => selectGraphNode(node))
             .onLinkClick(link => {
+                selectGraphLink(link);
                 if (link.isChronologicalFriction) openChronologicalPanel(link);
                 else if (link.isFriction) openFrictionPanel(link);
             });
@@ -1245,6 +1922,7 @@
             try {
                 const res  = await fetch(`/api/v1/canvas/${documentId}`);
                 const data = await res.json();
+                currentCanvasPayload = data;
 
                 const frictionLines = data.friction_lines || [];
                 graphLinks = data.edges;
@@ -1268,6 +1946,16 @@
                     chronologicalFrictionNodeIds.add(c.source);
                     chronologicalFrictionNodeIds.add(c.target);
                 });
+
+                highRiskNodeIds = new Set();
+                highRiskLinkKeys = new Set();
+                [...frictionLines, ...chronologicalLines]
+                    .filter(item => issueScore(item) >= 12 || Number(item.severity || 0) >= 4)
+                    .forEach(item => {
+                        highRiskNodeIds.add(item.source);
+                        highRiskNodeIds.add(item.target);
+                        highRiskLinkKeys.add(`${item.source}::${item.target}::${item.diamond || ''}`);
+                    });
 
                 const nodeIdSet = new Set(data.nodes.map(n => n.id));
                 const mergedLinks = [
@@ -1328,12 +2016,19 @@
                     slider.min = 0;
                     slider.max = maxRelMonth;
                     slider.value = maxRelMonth;  // Show all by default
+                    document.getElementById('timeline-drawer').style.display = 'block';
                     document.getElementById('timeline-container').style.display = 'block';
+                    document.getElementById('timeline-drawer').classList.add('collapsed');
+                    document.getElementById('timeline-toggle-state').textContent = 'Collapsed';
                 }
 
-                // Toolbar
-                const toolbar = document.getElementById('toolbar');
-                toolbar.style.display = 'flex';
+                // Toolbar and executive HUD
+                document.getElementById('command-hud').style.display = 'flex';
+                document.getElementById('view-mode-toggle').style.display = 'flex';
+                document.getElementById('risk-lens-controls').style.display = 'flex';
+                document.getElementById('node-search-panel').style.display = 'block';
+                document.getElementById('canvas-legend').style.display = 'flex';
+                document.getElementById('critical-attention-panel').style.display = 'flex';
                 document.getElementById('active-doc-label').textContent = documentName || documentId;
                 const badge = document.getElementById('friction-badge');
                 if (frictionLines.length) {
@@ -1346,11 +2041,10 @@
                 // Stats HUD
                 const hud = document.getElementById('stats-hud');
                 hud.style.display = 'flex';
-                document.getElementById('stat-nodes').textContent    = data.nodes.length.toLocaleString();
-                document.getElementById('stat-edges').textContent    = data.edges.length.toLocaleString();
-                document.getElementById('stat-friction').textContent  = frictionLines.length.toLocaleString();
-                document.getElementById('stat-fragility').textContent = fragilityLines.length.toLocaleString();
-                document.getElementById('stat-chronological').textContent = chronologicalLines.length.toLocaleString();
+                updateCanvasHud(data);
+                renderCriticalAttention(data);
+                applyRiskLens('overview');
+                switchCanvasView(activeCanvasView, { silent: true });
 
                 // Show Report button and pre-load dashboard data
                 document.getElementById('report-btn').style.display = 'inline-block';
@@ -1367,6 +2061,9 @@
         // ── 5. Panel: Friction link ──
         function openFrictionPanel(linkData) {
             document.getElementById('panel-type-label').style.color = '';
+            selectedNodeId = null;
+            selectedLinkKey = linkKey(linkData);
+            refreshGraphEncoding();
             activeFriction = linkData;
             const srcName = linkData.source.name || linkData.source.id || linkData.source;
             const tgtName = linkData.target.name || linkData.target.id || linkData.target;
@@ -1381,7 +2078,13 @@
             // Format long analysis text into paragraphs
             const raw = linkData.diamond || 'Logical contradiction detected.';
             const paragraphs = raw.split(/(?<=\.)\s{2,}|(?<=\.)\n/).filter(s => s.trim());
+            const score = issueScore(linkData);
             document.getElementById('panel-details').innerHTML = `
+                <div class="panel-risk-row">
+                    <span class="risk-pill critical">Risk score ${escHtml(String(score || 'n/a'))}</span>
+                    <span class="risk-pill">Severity ${escHtml(String(linkData.severity || 'n/a'))}</span>
+                    <span class="risk-pill">Probability ${escHtml(String(linkData.probability || 'n/a'))}</span>
+                </div>
                 <p class="panel-section-label">Analysis</p>
                 <div class="analysis-text">${paragraphs.map(p => `<p>${escHtml(p.trim())}</p>`).join('')}</div>
             `;
@@ -1402,6 +2105,9 @@
         // ── 5b. Panel: Hub node (fragility) ──
         function openFragilityPanel(fragData, node) {
             document.getElementById('panel-type-label').style.color = '';
+            selectedNodeId = node?.id || fragData.hub_node_id || null;
+            selectedLinkKey = null;
+            refreshGraphEncoding();
             activeFragility = fragData;
             activeFriction = null;
 
@@ -1442,6 +2148,9 @@
         }
 
         function openChronologicalPanel(linkData) {
+            selectedNodeId = null;
+            selectedLinkKey = linkKey(linkData);
+            refreshGraphEncoding();
             activeChronological = linkData;
             activeFriction = null;
             activeFragility = null;
@@ -1458,7 +2167,13 @@
 
             const raw = linkData.diamond || 'Schedule conflict detected.';
             const paragraphs = raw.split(/(?<=\.)\s{2,}|(?<=\.)\n/).filter(s => s.trim());
+            const score = issueScore(linkData);
             document.getElementById('panel-details').innerHTML = `
+                <div class="panel-risk-row">
+                    <span class="risk-pill timeline">Risk score ${escHtml(String(score || 'n/a'))}</span>
+                    <span class="risk-pill">Severity ${escHtml(String(linkData.severity || 'n/a'))}</span>
+                    <span class="risk-pill">Probability ${escHtml(String(linkData.probability || 'n/a'))}</span>
+                </div>
                 <p class="panel-section-label">Timeline Analysis</p>
                 <div class="analysis-text">${paragraphs.map(p => `<p>${escHtml(p.trim())}</p>`).join('')}</div>
             `;
@@ -1481,9 +2196,14 @@
         }
 
         // ── 6. Panel: Node click ──
-        function openNodePanel(node) {
+        function openNodePanel(node, preserveSelection = true) {
             activeFriction = null;
             activeFragility = null;
+            if (preserveSelection) {
+                selectedNodeId = node.id;
+                selectedLinkKey = null;
+                refreshGraphEncoding();
+            }
             const isHubNode = fragilityNodeIds.has(node.id);
             const isFrictionNode = frictionNodeIds.has(node.id);
 
@@ -1544,6 +2264,9 @@
             activeFriction = null;
             activeFragility = null;
             activeChronological = null;
+            selectedNodeId = null;
+            selectedLinkKey = null;
+            refreshGraphEncoding();
         }
 
         // ── 7. Copy analysis ──
@@ -1747,6 +2470,7 @@
 
         function renderReportPage(report) {
             document.getElementById('graph-container').style.display = 'none';
+            document.getElementById('analyst-map-container').style.display = 'none';
             // Close the reporting dashboard if it's open so it doesn't sit on top
             if (dashboardOpen) {
                 dashboardOpen = false;
@@ -1848,7 +2572,7 @@
 
         function closeReportPage() {
             document.getElementById('report-page').classList.remove('open');
-            document.getElementById('graph-container').style.display = '';
+            switchCanvasView(activeCanvasView, { silent: true });
         }
 
         async function regenerateReport() {

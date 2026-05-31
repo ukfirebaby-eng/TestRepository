@@ -4,6 +4,7 @@ import shutil
 import asyncio
 import json as _json
 import datetime
+import re
 from io import BytesIO
 from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
@@ -27,6 +28,7 @@ app = FastAPI(title="Diamond Miner API", version="1.0")
 # Mount the static folder to serve our Vanilla JS and WebGL UI
 os.makedirs("static", exist_ok=True)
 app.mount("/assets", StaticFiles(directory="static"), name="static")
+APP_V2_DIR = Path("static/app-v2")
 
 # --- Shared Vault Singleton ---
 # Single instance shared across all request handlers to avoid multiple
@@ -100,6 +102,54 @@ def _safe_report_filename(document_name: str) -> str:
     return safe or "report"
 
 
+_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
+
+
+def _split_report_paragraphs(value: Any) -> List[str]:
+    """Prepare generated report prose for readable PDF paragraphs."""
+    if not isinstance(value, str):
+        return []
+
+    text = value.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return []
+
+    explicit_paragraphs = [
+        paragraph.strip()
+        for paragraph in re.split(r"\n\s*\n+", text)
+        if paragraph.strip()
+    ]
+    if len(explicit_paragraphs) > 1:
+        return explicit_paragraphs
+
+    normalized = " ".join(text.split())
+    if len(normalized) <= 850:
+        return [normalized]
+
+    paragraphs: List[str] = []
+    current: List[str] = []
+    current_len = 0
+
+    for sentence in _SENTENCE_BOUNDARY_RE.split(normalized):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+
+        projected_len = current_len + len(sentence) + (1 if current else 0)
+        if current and projected_len > 850 and len(current) >= 3:
+            paragraphs.append(" ".join(current))
+            current = [sentence]
+            current_len = len(sentence)
+        else:
+            current.append(sentence)
+            current_len = projected_len
+
+    if current:
+        paragraphs.append(" ".join(current))
+
+    return paragraphs or [normalized]
+
+
 def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id: str, document_name: str):
     """The background worker that executes the Orchestrator without freezing the API."""
     try:
@@ -152,6 +202,26 @@ async def serve_ui():
     ui_path = "static/index.html"
     if not os.path.exists(ui_path):
         raise HTTPException(status_code=404, detail="UI not found. Please create static/index.html")
+    return FileResponse(ui_path)
+
+
+@app.get("/app-v2/assets/{asset_path:path}")
+async def serve_app_v2_asset(asset_path: str):
+    """Serves built Vite assets for the beta React command-center UI."""
+    asset_root = (APP_V2_DIR / "assets").resolve()
+    asset_file = (asset_root / asset_path).resolve()
+    if asset_root not in asset_file.parents or not asset_file.is_file():
+        raise HTTPException(status_code=404, detail="App v2 asset not found. Run npm build in frontend first.")
+    return FileResponse(asset_file)
+
+
+@app.get("/app-v2")
+@app.get("/app-v2/{route_path:path}")
+async def serve_app_v2(route_path: str = ""):
+    """Serves the beta React command-center UI without replacing the legacy root."""
+    ui_path = APP_V2_DIR / "index.html"
+    if not ui_path.exists():
+        raise HTTPException(status_code=404, detail="App v2 UI not built. Run npm build in frontend first.")
     return FileResponse(ui_path)
 
 
@@ -728,6 +798,7 @@ async def export_pdf(document_id: str):
         ) from exc
 
     env = Environment(loader=FileSystemLoader("templates"))
+    env.filters["report_paragraphs"] = _split_report_paragraphs
     template = env.get_template("narrative_report.html")
     html_string = template.render(**payload)
 

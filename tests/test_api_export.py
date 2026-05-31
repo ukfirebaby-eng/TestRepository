@@ -16,8 +16,8 @@ def _make_vault(doc_exists=True, narrative=None):
     return vault
 
 
-def _payload():
-    return {
+def _payload(**overrides):
+    payload = {
         "metadata": {"document_name": "Board Report / Q1"},
         "executive_summary": "Summary",
         "risk_heatmap": [],
@@ -26,6 +26,8 @@ def _payload():
         "issue_register": [],
         "methodology": "Method",
     }
+    payload.update(overrides)
+    return payload
 
 
 class TestPdfExport:
@@ -72,6 +74,46 @@ class TestPdfExport:
         assert response.headers["content-type"] == "application/pdf"
         assert 'filename="Diamond_Miner_Report_Board_Report___Q1.pdf"' in response.headers["content-disposition"]
         assert response.content == b"%PDF fake"
+
+    def test_renders_chapter_narrative_as_spaced_paragraphs(self):
+        captured = {}
+
+        def html_factory(string):
+            captured["html"] = string
+            return SimpleNamespace(write_pdf=lambda: b"%PDF fake")
+
+        fake_weasyprint = SimpleNamespace(HTML=html_factory)
+        long_narrative = (
+            "Effective schedule management is essential to the programme transition. "
+            "The dependency model shows that certification activity is tightly coupled to infrastructure readiness. "
+            "A delay in network segmentation would prevent certification from starting cleanly. "
+            "This creates a material governance risk for the dress rehearsal. "
+            "The steering board should treat this as a programme-level sequencing issue. "
+            "One option is to move migration until after certification has realistic evidence. "
+            "A second option is to accelerate penetration testing with additional technical resources. "
+            "Both paths require an updated risk register and explicit owner accountability. "
+            "Proceeding without a schedule correction would increase the chance of rework and formal non-compliance. "
+            "The recommended action is to correct the dependency chain before the next control milestone."
+        )
+        assembler = MagicMock()
+        assembler.assemble.return_value = _payload(
+            chapters=[
+                {
+                    "title": "Schedule and Dependency Management",
+                    "narrative": long_narrative,
+                }
+            ]
+        )
+
+        with patch("api.vault", _make_vault(narrative={"chapters": []})), \
+             patch("api.ReportAssembler", return_value=assembler), \
+             patch.dict("sys.modules", {"weasyprint": fake_weasyprint}):
+            with TestClient(app) as client:
+                response = client.get("/api/v1/export/pdf/doc_abc")
+
+        assert response.status_code == 200
+        assert "Schedule and Dependency Management" in captured["html"]
+        assert captured["html"].count('class="narrative-paragraph"') >= 2
 
 
 class TestDocxExport:

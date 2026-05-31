@@ -33,6 +33,18 @@
   h3 { font-size: 13pt; margin-bottom: 8px; }
 
   p { margin-bottom: 10px; text-align: left; }
+  .narrative-body {
+    margin-top: 2px;
+  }
+  .narrative-paragraph {
+    margin: 0 0 13px 0;
+    line-height: 1.55;
+    orphans: 2;
+    widows: 2;
+  }
+  .narrative-paragraph:last-child {
+    margin-bottom: 0;
+  }
 
   /* ── Section Breaks ── */
   .page-break { page-break-before: always; }
@@ -199,7 +211,11 @@
 <div style="margin-top:28px;">
   <h2>Executive Summary</h2>
   {% if executive_summary %}
-    <p>{{ executive_summary }}</p>
+    <div class="narrative-body">
+      {% for paragraph in executive_summary | report_paragraphs %}
+        <p class="narrative-paragraph">{{ paragraph }}</p>
+      {% endfor %}
+    </div>
   {% else %}
     <p class="empty-note">No executive summary available.</p>
   {% endif %}
@@ -264,7 +280,16 @@
 {% for chapter in chapters %}
 <div class="page-break">
   <h2>{{ chapter.title | default("Chapter " ~ loop.index) }}</h2>
-  <p>{{ chapter.narrative | default("") }}</p>
+  {% set paragraphs = chapter.narrative | default("") | report_paragraphs %}
+  {% if paragraphs %}
+    <div class="narrative-body">
+      {% for paragraph in paragraphs %}
+        <p class="narrative-paragraph">{{ paragraph }}</p>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty-note">No chapter narrative available.</p>
+  {% endif %}
 </div>
 {% endfor %}
 
@@ -299,7 +324,9 @@
 <div class="page-break">
   <h2>Appendix B: Methodology</h2>
   <div class="methodology">
-    <p>{{ methodology }}</p>
+    {% for paragraph in methodology | report_paragraphs %}
+      <p class="narrative-paragraph">{{ paragraph }}</p>
+    {% endfor %}
   </div>
 </div>
 
