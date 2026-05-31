@@ -1,0 +1,10 @@
+{
+  "document_id": "fixture_complex_programme_live",
+  "document_path": "complex_programme.md",
+  "expectations": {
+    "node_count": { "min": 4 },
+    "edge_count": { "min": 3 },
+    "hub_vulnerability_count": { "min": 1 },
+    "risk_matrix_count": { "min": 1 }
+  }
+}

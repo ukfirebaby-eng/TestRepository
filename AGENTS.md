@@ -31,6 +31,9 @@ Relevant environment variables:
 - `FAST_MODEL`
 - `SMART_MODEL`
 - `VAULT_PATH`
+- `DIAMOND_MINER_PORT` defaults to `8000`
+- `DIAMOND_MINER_STOP_STALE_SERVER=1` stops Python processes bound to the configured port
+- `DIAMOND_MINER_FORCE_STOP_PORT_PROCESS=1` force-stops an uninspectable process on the configured port
 
 ## Testing
 
@@ -43,6 +46,23 @@ python -m pytest -m evaluation -q
 
 Tests are expected to mock LLM calls and use isolated temporary data. Prefer focused tests first, then broader test runs when the change is complete.
 Use the `evaluation` marker as the deterministic analytical quality gate for fixture baselines.
+
+## CI / Quality Gates
+
+The deterministic CI evaluation gate is:
+
+```bash
+python -m pytest -m evaluation -q
+```
+
+Live model evaluation is intentionally separate from CI. Run it only with an explicit opt-in:
+
+```bash
+set DIAMOND_MINER_LIVE_EVALUATION=1
+python -m pytest -m live_evaluation -q
+```
+
+Live evaluation uses the configured LLM provider and can vary with provider/model behaviour.
 
 ## Architecture Notes
 

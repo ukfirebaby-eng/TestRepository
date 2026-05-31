@@ -1,6 +1,11 @@
 import json
+import os
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List
+
+from core.orchestrator import DiamondOrchestrator
+from core.vault import HybridVault
 
 
 def _get_canvas_data(vault: Any, document_id: str) -> Dict[str, Any]:
@@ -94,3 +99,37 @@ def evaluate_baseline(vault: Any, baseline_path: str | Path) -> Dict[str, Any]:
     result["baseline_path"] = str(Path(baseline_path))
     result["document_path"] = str(baseline.get("document_path", ""))
     return result
+
+
+def live_evaluation_enabled() -> bool:
+    """Return True only when live model-backed evaluation is explicitly enabled."""
+    return os.environ.get("DIAMOND_MINER_LIVE_EVALUATION", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def evaluate_live_ingestion_fixture(
+    baseline_path: str | Path,
+    base_dir: str | Path,
+    tenant_id: str | None = None,
+    max_workers: int = 3,
+) -> Dict[str, Any]:
+    """
+    Run a baseline through the real ingestion and analysis agents.
+
+    This is intentionally separate from deterministic fixture tests because it can
+    call live LLM providers and will vary with model/provider behaviour.
+    """
+    baseline = load_evaluation_baseline(baseline_path)
+    live_tenant = tenant_id or f"live_eval_{uuid.uuid4().hex[:8]}"
+    vault = HybridVault(tenant_id=live_tenant, base_dir=str(base_dir))
+    orchestrator = DiamondOrchestrator(
+        tenant_id=live_tenant,
+        document_id=baseline["document_id"],
+        document_name=baseline["document_path"].name,
+        vault=vault,
+    )
+
+    orchestrator.run_ingestion_pipeline(str(baseline["document_path"]), max_workers=max_workers)
+    orchestrator.interrogate_friction()
+    orchestrator.interrogate_fragility()
+    orchestrator.interrogate_time_friction()
+    return evaluate_baseline(vault, baseline_path)

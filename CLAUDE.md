@@ -31,6 +31,9 @@ Starts a FastAPI/Uvicorn server on `http://localhost:8000`. Required directories
 | `LLM_PROVIDER` | `openai` | Switch between `openai` / `openrouter` |
 | `FAST_MODEL` | `gpt-4o-mini` | Used by extraction/classification agents |
 | `SMART_MODEL` | `gpt-4o` | Used by reasoning/drafting agents |
+| `DIAMOND_MINER_PORT` | `8000` | Local server port |
+| `DIAMOND_MINER_STOP_STALE_SERVER` | — | Set `1` to stop Python processes bound to the configured port |
+| `DIAMOND_MINER_FORCE_STOP_PORT_PROCESS` | — | Set `1` with the stale-server flag when Windows blocks process inspection |
 
 ## Running Tests
 
@@ -38,9 +41,27 @@ Starts a FastAPI/Uvicorn server on `http://localhost:8000`. Required directories
 pytest tests/                                                                                        # all tests
 pytest tests/test_vault_narrative.py                                                                 # single file
 pytest tests/test_vault_executive.py::TestGetExecutiveSummary::test_returns_none_when_no_cache      # single test
+python -m pytest -m evaluation -q                                                                    # deterministic CI quality gate
 ```
 
 Tests use `tmp_path` fixtures for isolated SQLite databases and `unittest.mock.patch` to stub all LLM calls. No live API key is needed to run the test suite.
+
+## CI / Evaluation Commands
+
+Deterministic evaluation fixtures run in CI with:
+
+```bash
+python -m pytest -m evaluation -q
+```
+
+Live model evaluation is opt-in and separate from deterministic CI:
+
+```bash
+set DIAMOND_MINER_LIVE_EVALUATION=1
+python -m pytest -m live_evaluation -q
+```
+
+Live evaluation uses configured LLM credentials and should not be required for normal CI.
 
 ## Architecture
 
