@@ -182,6 +182,21 @@ class TestRecursiveDraftingAgent:
             "rolling_context string should appear verbatim in the LLM prompt"
         )
 
+    def test_run_caps_completion_tokens_for_provider_credit_limits(self):
+        agent = self._make_agent()
+        chapter = {"title": "Schedule Clashes", "indices": [3, 4]}
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_openai_response(
+            "Schedule clashes narrative text."
+        )
+
+        with patch("core.agents._get_client", return_value=mock_client):
+            agent.run(chapter, rolling_context="")
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["max_tokens"] <= 3072
+
     def test_hard_stop_injection(self):
         """Issues with severity >= 5 have 'MUST INCLUDE' prepended in the prompt."""
         agent = self._make_agent()

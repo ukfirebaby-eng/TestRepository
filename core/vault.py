@@ -6,6 +6,8 @@ import chromadb
 from datetime import datetime, timezone
 from typing import List, Dict, Tuple, Any, Optional
 
+from core.accuracy.schemas import CanonicalEntity, DocumentManifest, EvidenceSpan, ExtractionFailure, ExtractedClaim, ValidationResult
+
 
 class HybridVault:
     def __init__(self, tenant_id: str, base_dir: str = "./vaults"):
@@ -59,6 +61,8 @@ class HybridVault:
                 target_id TEXT NOT NULL,
                 relationship TEXT NOT NULL,
                 source_chunk_id TEXT NOT NULL,
+                claim_id TEXT,
+                evidence_span_ids TEXT,
                 FOREIGN KEY(source_id) REFERENCES nodes(id),
                 FOREIGN KEY(target_id) REFERENCES nodes(id)
             )
@@ -69,6 +73,11 @@ class HybridVault:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_relationship ON edges(relationship)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_edges_document ON edges(document_id)")
+        for col in ["claim_id", "evidence_span_ids"]:
+            try:
+                cursor.execute(f"ALTER TABLE edges ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass
 
         # Documents Table — tracks every ingested document for UI restore
         cursor.execute("""
@@ -78,6 +87,99 @@ class HybridVault:
                 created_at TEXT NOT NULL
             )
         """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS document_manifests (
+                document_id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                source_hash TEXT NOT NULL,
+                ingested_at TEXT NOT NULL,
+                parser_version TEXT NOT NULL,
+                schema_version TEXT NOT NULL,
+                embedding_model TEXT NOT NULL,
+                llm_model TEXT NOT NULL,
+                document_anchor_date TEXT,
+                validation_status TEXT NOT NULL
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS evidence_spans (
+                span_id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                chunk_id TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                section_title TEXT NOT NULL DEFAULT '',
+                text TEXT NOT NULL,
+                span_type TEXT NOT NULL,
+                bbox_json TEXT,
+                source_hash TEXT NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_evidence_spans_document ON evidence_spans(document_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_evidence_spans_chunk ON evidence_spans(chunk_id)")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS extracted_claims (
+                claim_id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                claim_type TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                modality TEXT NOT NULL,
+                certainty TEXT NOT NULL,
+                status TEXT NOT NULL,
+                date_start TEXT,
+                date_end TEXT,
+                owner TEXT NOT NULL DEFAULT '',
+                evidence_span_ids TEXT NOT NULL,
+                source_quote TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                validation_status TEXT NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_extracted_claims_document ON extracted_claims(document_id)")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS claim_validation_results (
+                claim_id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                reasons_json TEXT NOT NULL,
+                can_promote INTEGER NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_claim_validation_document ON claim_validation_results(document_id)")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS canonical_entities (
+                entity_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                canonical_name TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                aliases_json TEXT NOT NULL,
+                source_span_ids_json TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                human_locked INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (document_id, entity_id)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_canonical_entities_document ON canonical_entities(document_id)")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS extraction_failures (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                span_id TEXT NOT NULL,
+                agent TEXT NOT NULL,
+                error TEXT NOT NULL,
+                raw_payload TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_failures_document ON extraction_failures(document_id)")
 
         # Friction Lines Table — persists computed diamonds so they survive restarts
         cursor.execute("""
@@ -138,6 +240,14 @@ class HybridVault:
             except sqlite3.OperationalError:
                 pass  # Column already exists on subsequent starts
 
+        # Structured finding metadata lets the UI explain evidence without
+        # reverse-engineering meaning from graph endpoints.
+        for table in ["friction_lines", "chronological_friction_lines"]:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN finding_json TEXT")
+            except sqlite3.OperationalError:
+                pass
+
         # Temporal Metadata Table — stores ISO 8601 dates per node
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS temporal_metadata (
@@ -180,6 +290,212 @@ class HybridVault:
 
         self.conn.commit()
 
+    def save_document_manifest(self, manifest: DocumentManifest) -> None:
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO document_manifests
+                (document_id, filename, mime_type, source_hash, ingested_at, parser_version,
+                 schema_version, embedding_model, llm_model, document_anchor_date, validation_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                manifest.document_id,
+                manifest.filename,
+                manifest.mime_type,
+                manifest.source_hash,
+                manifest.ingested_at.isoformat(),
+                manifest.parser_version,
+                manifest.schema_version,
+                manifest.embedding_model,
+                manifest.llm_model,
+                manifest.document_anchor_date.isoformat() if manifest.document_anchor_date else None,
+                manifest.validation_status,
+            ))
+            self.conn.commit()
+
+    def get_document_manifest(self, document_id: str) -> Optional[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM document_manifests WHERE document_id = ?", (document_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def insert_evidence_spans(self, spans: List[EvidenceSpan]) -> None:
+        if not spans:
+            return
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.executemany("""
+                INSERT OR REPLACE INTO evidence_spans
+                (span_id, document_id, chunk_id, page_number, section_title, text, span_type, bbox_json, source_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                (
+                    span.span_id,
+                    span.document_id,
+                    span.chunk_id,
+                    span.page_number,
+                    span.section_title,
+                    span.text,
+                    span.span_type,
+                    span.bbox.model_dump_json() if span.bbox else None,
+                    span.source_hash,
+                )
+                for span in spans
+            ])
+            self.conn.commit()
+
+    def list_evidence_spans(self, document_id: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM evidence_spans WHERE document_id = ? ORDER BY span_id", (document_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def insert_extracted_claims(self, claims: List[ExtractedClaim]) -> None:
+        if not claims:
+            return
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.executemany("""
+                INSERT OR REPLACE INTO extracted_claims
+                (claim_id, document_id, claim_type, subject, predicate, object, modality, certainty,
+                 status, date_start, date_end, owner, evidence_span_ids, source_quote, confidence, validation_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                (
+                    claim.claim_id,
+                    claim.document_id,
+                    claim.claim_type,
+                    claim.subject,
+                    claim.predicate,
+                    claim.object,
+                    claim.modality,
+                    claim.certainty,
+                    claim.status,
+                    claim.date_start.isoformat() if claim.date_start else None,
+                    claim.date_end.isoformat() if claim.date_end else None,
+                    claim.owner,
+                    json.dumps(claim.evidence_span_ids),
+                    claim.source_quote,
+                    claim.confidence,
+                    claim.validation_status,
+                )
+                for claim in claims
+            ])
+            self.conn.commit()
+
+    def list_extracted_claims(self, document_id: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM extracted_claims WHERE document_id = ? ORDER BY claim_id", (document_id,))
+        rows = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item["evidence_span_ids"] = json.loads(item["evidence_span_ids"])
+            rows.append(item)
+        return rows
+
+    def insert_validation_results(self, results: List[ValidationResult]) -> None:
+        if not results:
+            return
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.executemany("""
+                INSERT OR REPLACE INTO claim_validation_results
+                (claim_id, document_id, status, reasons_json, can_promote)
+                VALUES (?, ?, ?, ?, ?)
+            """, [
+                (
+                    result.claim_id,
+                    result.document_id,
+                    result.status,
+                    json.dumps(result.reasons),
+                    1 if result.can_promote else 0,
+                )
+                for result in results
+            ])
+            self.conn.commit()
+
+    def list_validation_results(self, document_id: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM claim_validation_results WHERE document_id = ? ORDER BY claim_id",
+            (document_id,),
+        )
+        rows = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item["reasons"] = json.loads(item.pop("reasons_json"))
+            rows.append(item)
+        return rows
+
+    def insert_canonical_entities(self, document_id: str, entities: List[CanonicalEntity]) -> None:
+        if not entities:
+            return
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.executemany("""
+                INSERT OR REPLACE INTO canonical_entities
+                (entity_id, document_id, canonical_name, entity_type, aliases_json,
+                 source_span_ids_json, confidence, human_locked)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, [
+                (
+                    entity.entity_id,
+                    document_id,
+                    entity.canonical_name,
+                    entity.entity_type,
+                    json.dumps(entity.aliases),
+                    json.dumps(entity.source_span_ids),
+                    entity.confidence,
+                    1 if entity.human_locked else 0,
+                )
+                for entity in entities
+            ])
+            self.conn.commit()
+
+    def list_canonical_entities(self, document_id: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM canonical_entities WHERE document_id = ? ORDER BY entity_id",
+            (document_id,),
+        )
+        rows = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item["aliases"] = json.loads(item.pop("aliases_json"))
+            item["source_span_ids"] = json.loads(item.pop("source_span_ids_json"))
+            rows.append(item)
+        return rows
+
+    def list_extraction_failures(self, document_id: str) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM extraction_failures WHERE document_id = ? ORDER BY created_at, id",
+            (document_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def insert_extraction_failures(self, failures: List[ExtractionFailure]) -> None:
+        if not failures:
+            return
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.executemany("""
+                INSERT OR REPLACE INTO extraction_failures
+                (id, document_id, span_id, agent, error, raw_payload, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, [
+                (
+                    failure.id,
+                    failure.document_id,
+                    failure.span_id,
+                    failure.agent,
+                    failure.error,
+                    failure.raw_payload,
+                    failure.created_at.isoformat(),
+                )
+                for failure in failures
+            ])
+            self.conn.commit()
+
     def insert_document_chunk(self, chunk_id: str, document_id: str, text: str, page: int, bbox: Tuple[float, float, float, float]) -> None:
         """
         Embeds the text and stores it in ChromaDB along with the strict
@@ -212,9 +528,19 @@ class HybridVault:
                     # Scope the edge ID to this document so re-ingesting doesn't collide
                     edge_id = f"{document_id}_{edge['source_id']}_{edge['relationship']}_{edge['target_id']}"
                     cursor.execute("""
-                        INSERT OR IGNORE INTO edges (id, document_id, source_id, target_id, relationship, source_chunk_id)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (edge_id, document_id, edge['source_id'], edge['target_id'], edge['relationship'], source_chunk_id))
+                        INSERT OR IGNORE INTO edges
+                        (id, document_id, source_id, target_id, relationship, source_chunk_id, claim_id, evidence_span_ids)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        edge_id,
+                        document_id,
+                        edge['source_id'],
+                        edge['target_id'],
+                        edge['relationship'],
+                        source_chunk_id,
+                        edge.get("claim_id"),
+                        json.dumps(edge.get("evidence_span_ids")) if edge.get("evidence_span_ids") else None,
+                    ))
 
                 self.conn.commit()
             except Exception as e:
@@ -235,7 +561,11 @@ class HybridVault:
                     e1.target_id AS node_b,
                     e2.source_id AS node_c,
                     e1.source_chunk_id AS chunk_requires,
-                    e2.source_chunk_id AS chunk_blocks
+                    e2.source_chunk_id AS chunk_blocks,
+                    e1.claim_id AS claim_requires,
+                    e2.claim_id AS claim_blocks,
+                    e1.evidence_span_ids AS evidence_requires,
+                    e2.evidence_span_ids AS evidence_blocks
                 FROM edges e1
                 JOIN edges e2 ON e1.target_id = e2.target_id
                 WHERE e1.relationship = 'REQUIRES'
@@ -251,7 +581,11 @@ class HybridVault:
                     e1.target_id AS node_b,
                     e2.source_id AS node_c,
                     e1.source_chunk_id AS chunk_requires,
-                    e2.source_chunk_id AS chunk_blocks
+                    e2.source_chunk_id AS chunk_blocks,
+                    e1.claim_id AS claim_requires,
+                    e2.claim_id AS claim_blocks,
+                    e1.evidence_span_ids AS evidence_requires,
+                    e2.evidence_span_ids AS evidence_blocks
                 FROM edges e1
                 JOIN edges e2 ON e1.target_id = e2.target_id
                 WHERE e1.relationship = 'REQUIRES'
@@ -259,7 +593,30 @@ class HybridVault:
             """
             cursor.execute(query)
 
-        return [dict(row) for row in cursor.fetchall()]
+        conflicts = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item["claim_ids"] = [
+                claim_id
+                for claim_id in [item.pop("claim_requires", None), item.pop("claim_blocks", None)]
+                if claim_id
+            ]
+            evidence_span_ids: List[str] = []
+            for key in ["evidence_requires", "evidence_blocks"]:
+                raw = item.pop(key, None)
+                if not raw:
+                    continue
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        evidence_span_ids.extend(str(span_id) for span_id in parsed if span_id)
+                    else:
+                        evidence_span_ids.append(str(parsed))
+                except (json.JSONDecodeError, TypeError):
+                    evidence_span_ids.append(str(raw))
+            item["evidence_span_ids"] = list(dict.fromkeys(evidence_span_ids))
+            conflicts.append(item)
+        return conflicts
 
     def get_chunk_provenance(self, chunk_id: str) -> Dict[str, Any]:
         """
@@ -310,8 +667,9 @@ class HybridVault:
         cursor.execute("DELETE FROM friction_lines WHERE document_id = ?", (document_id,))
         for i, fl in enumerate(friction_lines):
             cursor.execute("""
-                INSERT INTO friction_lines (id, document_id, source_node_id, target_node_id, diamond, provenance_ids, severity, probability)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO friction_lines
+                (id, document_id, source_node_id, target_node_id, diamond, provenance_ids, severity, probability, finding_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 f"{document_id}_fl_{i}",
                 document_id,
@@ -321,6 +679,7 @@ class HybridVault:
                 json.dumps(fl["provenance_ids"]),
                 fl.get("severity", 3),
                 fl.get("probability", 3),
+                json.dumps(fl["finding"]) if fl.get("finding") else None,
             ))
         self.conn.commit()
 
@@ -336,6 +695,12 @@ class HybridVault:
             "executive_summaries",
             "narrative_reports",
             "risk_simulations",
+            "extraction_failures",
+            "canonical_entities",
+            "claim_validation_results",
+            "extracted_claims",
+            "evidence_spans",
+            "document_manifests",
             "documents",
         ]
         with self.conn:
@@ -363,6 +728,12 @@ class HybridVault:
             cursor.execute("DELETE FROM friction_lines WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM fragility_lines WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM chronological_friction_lines WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM extraction_failures WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM canonical_entities WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM claim_validation_results WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM extracted_claims WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM evidence_spans WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM document_manifests WHERE document_id = ?", (document_id,))
             # Note: deletes temporal data for ALL nodes appearing in this document's edges.
             # If a node is shared across documents, its temporal data will be wiped.
             cursor.execute("""
@@ -394,7 +765,7 @@ class HybridVault:
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT source_node_id AS source, target_node_id AS target,
-                   diamond, provenance_ids, severity, probability
+                   diamond, provenance_ids, severity, probability, finding_json
             FROM friction_lines WHERE document_id = ?
         """, (document_id,))
         rows = cursor.fetchall()
@@ -402,6 +773,9 @@ class HybridVault:
         for row in rows:
             d = dict(row)
             d["provenance_ids"] = json.loads(d["provenance_ids"])
+            finding_json = d.pop("finding_json", None)
+            if finding_json:
+                d["finding"] = json.loads(finding_json)
             result.append(d)
         return result
 
@@ -606,8 +980,8 @@ class HybridVault:
             for i, line in enumerate(lines):
                 cursor.execute("""
                     INSERT INTO chronological_friction_lines
-                    (id, document_id, source_node_id, target_node_id, diamond, provenance_ids, severity, probability)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, document_id, source_node_id, target_node_id, diamond, provenance_ids, severity, probability, finding_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     f"{document_id}_cf_{i}",
                     document_id,
@@ -617,6 +991,7 @@ class HybridVault:
                     json.dumps(line.get("provenance_ids", [])),
                     line.get("severity", 3),
                     line.get("probability", 3),
+                    json.dumps(line["finding"]) if line.get("finding") else None,
                 ))
             self.conn.commit()
         except Exception as e:
@@ -629,7 +1004,7 @@ class HybridVault:
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT source_node_id AS source, target_node_id AS target,
-                   diamond, provenance_ids, severity, probability
+                   diamond, provenance_ids, severity, probability, finding_json
             FROM chronological_friction_lines WHERE document_id = ?
         """, (document_id,))
         rows = cursor.fetchall()
@@ -637,6 +1012,9 @@ class HybridVault:
         for row in rows:
             d = dict(row)
             d["provenance_ids"] = json.loads(d["provenance_ids"])
+            finding_json = d.pop("finding_json", None)
+            if finding_json:
+                d["finding"] = json.loads(finding_json)
             result.append(d)
         return result
 

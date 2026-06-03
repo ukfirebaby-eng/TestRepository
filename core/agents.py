@@ -44,6 +44,12 @@ def _get_model(tier: str) -> str:
     return os.environ.get(env_key, default)
 
 
+FAST_JSON_MAX_TOKENS = 1800
+SMART_JSON_MAX_TOKENS = 2400
+EXECUTIVE_REPORT_MAX_TOKENS = 4096
+NARRATIVE_CHAPTER_MAX_TOKENS = 3072
+
+
 class DeconstructorAgent:
     """
     The deterministic parser. It reads raw text and converts it into a
@@ -75,6 +81,7 @@ class DeconstructorAgent:
                 model=_get_model("fast"),  # Fast, cheap, and reliable for deterministic JSON extraction
                 response_format={"type": "json_object"},
                 temperature=0.0,  # CRITICAL: 0.0 makes the AI deterministic. No creative deviations allowed.
+                max_tokens=FAST_JSON_MAX_TOKENS,
                 messages=[
                     {"role": "system", "content": DeconstructorAgent.SYSTEM_PROMPT},
                     {"role": "user", "content": f"Extract graph topology from the following text:\n\n{text_chunk}"}
@@ -122,10 +129,21 @@ class ContradictionHunterAgent:
       "confidence": a float between 0.0 and 1.0,
       "analysis": "Your mitigation if genuine, or a one-sentence explanation of why it is spurious.",
       "severity": an integer from 1 (minor nuisance) to 5 (programme-ending failure),
-      "probability": an integer from 1 (highly unlikely to materialise) to 5 (virtually certain)
+      "probability": an integer from 1 (highly unlikely to materialise) to 5 (virtually certain),
+      "finding": {
+        "title": "short plain-English issue title",
+        "risk_type": "structural | timeline | evidence readiness | approval gate | compliance | operational",
+        "affected_entity": "the programme, workstream, system, milestone, or decision actually at risk",
+        "blocked_work": "the work, decision, approval, or milestone that cannot safely proceed",
+        "blocking_condition": "the prerequisite, approval, capability, evidence, date, or dependency that must be resolved first",
+        "evidence_summary": "plain-English description of what the source text proves",
+        "why_it_matters": "plain-English consequence for delivery, compliance, operations, cost, or governance",
+        "recommended_action": "specific action grounded in the source text",
+        "assumptions": ["only list assumptions needed to interpret the finding"]
+      }
     }
 
-    Severity and probability must always be present. For spurious conflicts, use 1 for both.
+    Severity and probability must always be present. For spurious conflicts, use 1 for both and still include a finding object explaining why the pattern was rejected.
     """
 
     @staticmethod
@@ -147,6 +165,7 @@ class ContradictionHunterAgent:
                 model=_get_model("smart"),
                 temperature=0.1,
                 response_format={"type": "json_object"},
+                max_tokens=SMART_JSON_MAX_TOKENS,
                 messages=[
                     {"role": "system", "content": ContradictionHunterAgent.SYSTEM_PROMPT},
                     {"role": "user", "content": prompt_payload}
@@ -213,6 +232,7 @@ THE SOURCE TEXT:
                 model=_get_model("smart"),
                 temperature=0.1,
                 response_format={"type": "json_object"},
+                max_tokens=SMART_JSON_MAX_TOKENS,
                 messages=[
                     {"role": "system", "content": FragilityAgent.SYSTEM_PROMPT},
                     {"role": "user", "content": prompt_payload}
@@ -286,6 +306,7 @@ RAW TEXT:
                 model=_get_model("fast"),
                 response_format={"type": "json_object"},
                 temperature=0.0,
+                max_tokens=FAST_JSON_MAX_TOKENS,
                 messages=[
                     {"role": "system", "content": ChronosAgent.get_system_prompt(current_anchor)},
                     {"role": "user", "content": context_payload}
@@ -381,6 +402,7 @@ Order issues: critical first, then high, then medium, then low."""
             model=self.model,
             temperature=0.7,
             response_format={"type": "json_object"},
+            max_tokens=EXECUTIVE_REPORT_MAX_TOKENS,
             messages=[
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
@@ -435,6 +457,7 @@ Return ONLY valid JSON. No markdown, no explanation."""
                 temperature=0.0,
                 # No response_format here — the Critic returns a bare JSON array ([])
                 # and json_object mode forbids bare arrays.
+                max_tokens=FAST_JSON_MAX_TOKENS,
                 messages=[
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": (
@@ -660,6 +683,7 @@ RULES:
         response = client.chat.completions.create(
             model=_get_model("fast"),
             temperature=0.0,
+            max_tokens=FAST_JSON_MAX_TOKENS,
             messages=[
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
@@ -740,6 +764,7 @@ class RecursiveDraftingAgent:
         response = client.chat.completions.create(
             model=_get_model("smart"),
             temperature=0.7,
+            max_tokens=NARRATIVE_CHAPTER_MAX_TOKENS,
             messages=[
                 {
                     "role": "system",
@@ -782,6 +807,7 @@ class RecursiveDraftingAgent:
         response = client.chat.completions.create(
             model=_get_model("smart"),
             temperature=0.7,
+            max_tokens=NARRATIVE_CHAPTER_MAX_TOKENS,
             messages=[
                 {
                     "role": "system",

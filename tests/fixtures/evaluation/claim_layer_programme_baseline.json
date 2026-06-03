@@ -1,0 +1,54 @@
+{
+  "document_id": "claim_layer_programme",
+  "document_path": "claim_layer_programme.md",
+  "claim_expectations": {
+    "expected_claims": [
+      {
+        "claim_type": "dependency",
+        "subject": "cloud migration",
+        "object": "security certification"
+      },
+      {
+        "claim_type": "blocker",
+        "subject": "API gateway",
+        "object": "deployment"
+      }
+    ],
+    "metrics": {
+      "evidence_span_count": { "min": 2 },
+      "claim_count": { "exact": 2 },
+      "validated_claim_count": { "exact": 1 },
+      "needs_review_claim_count": { "exact": 1 },
+      "claim_match_rate": { "min": 1.0 },
+      "canonical_entity_count": { "min": 4 },
+      "extraction_failure_count": { "exact": 0 }
+    }
+  },
+  "promotion_expectations": {
+    "expected_edges": [
+      {
+        "source": "cloud migration",
+        "target": "security certification",
+        "relationship": "REQUIRES"
+      }
+    ],
+    "metrics": {
+      "promoted_edge_count": { "exact": 1 },
+      "promoted_node_count": { "exact": 2 },
+      "promoted_self_edge_count": { "exact": 0 },
+      "promoted_edges_with_claim_id": { "exact": 1 },
+      "promoted_edges_with_evidence": { "exact": 1 },
+      "promoted_edge_match_rate": { "exact": 1.0 }
+    }
+  },
+  "parallel_expectations": {
+    "metrics": {
+      "legacy_edge_count": { "exact": 1 },
+      "claim_promoted_edge_count": { "exact": 1 },
+      "shared_canonical_edge_count": { "exact": 1 },
+      "legacy_only_edge_count": { "exact": 0 },
+      "claim_only_edge_count": { "exact": 0 },
+      "claim_vs_legacy_overlap_rate": { "exact": 1.0 }
+    }
+  }
+}

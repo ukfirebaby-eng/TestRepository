@@ -11,6 +11,12 @@ def _mock_response(payload: dict):
 
 
 class TestContradictionHunterAgentSchema:
+    def test_prompt_requests_structured_risk_finding(self):
+        assert '"finding"' in ContradictionHunterAgent.SYSTEM_PROMPT
+        assert "affected_entity" in ContradictionHunterAgent.SYSTEM_PROMPT
+        assert "blocking_condition" in ContradictionHunterAgent.SYSTEM_PROMPT
+        assert "recommended_action" in ContradictionHunterAgent.SYSTEM_PROMPT
+
     def test_returns_severity_and_probability_on_genuine(self):
         payload = {"is_genuine": True, "confidence": 0.9, "analysis": "Fix it.", "severity": 4, "probability": 3}
         with patch("core.agents._get_client") as mock_client:

@@ -5,6 +5,7 @@ import asyncio
 import json as _json
 import datetime
 import re
+from collections import Counter
 from io import BytesIO
 from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
@@ -20,6 +21,7 @@ from core.docx_builder import build_narrative_docx
 from core.orchestrator import DiamondOrchestrator
 from core.vault import HybridVault
 from core.config import read_env, write_env, mask_key
+from core.evaluation import collect_parallel_graph_agreement
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -160,6 +162,9 @@ def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id
 
         orchestrator = DiamondOrchestrator(tenant_id=tenant_id, document_id=document_id, document_name=document_name, vault=vault, log_fn=_log)
         orchestrator.run_ingestion_pipeline(file_path=file_path)
+        accuracy_metrics = getattr(orchestrator, "accuracy_metrics", None)
+        if isinstance(accuracy_metrics, dict) and accuracy_metrics:
+            JOB_STORE[job_id]["accuracy"] = accuracy_metrics
 
         friction_lines = orchestrator.interrogate_friction()
         orchestrator.interrogate_fragility()
@@ -195,6 +200,78 @@ def _gather_raw_issues(document_id: str) -> dict:
     }
 
 
+def _sse_report_error(exc: Exception) -> str:
+    """Return a client-readable SSE error without tearing down the stream."""
+    message = str(exc) or exc.__class__.__name__
+    return f"data: {_json.dumps({'stage': 'error', 'message': message, 'error': 'report_generation_failed'})}\n\n"
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(numerator / denominator, 4)
+
+
+def _build_accuracy_quality(
+    *,
+    evidence_spans: List[Dict[str, Any]],
+    claims: List[Dict[str, Any]],
+    validation_results: List[Dict[str, Any]],
+    canonical_entities: List[Dict[str, Any]],
+    graph_agreement: Dict[str, Any],
+) -> Dict[str, Any]:
+    evidence_span_ids = {span.get("span_id") for span in evidence_spans}
+    cited_span_ids = {
+        span_id
+        for claim in claims
+        for span_id in claim.get("evidence_span_ids", [])
+        if span_id in evidence_span_ids
+    }
+    validation_count = len(validation_results)
+    passed = sum(1 for item in validation_results if item.get("status") == "passed")
+    needs_review = sum(1 for item in validation_results if item.get("status") == "needs_review")
+    failed = sum(1 for item in validation_results if item.get("status") == "failed")
+    promotable = sum(1 for item in validation_results if item.get("can_promote"))
+    reason_counts = Counter(
+        reason
+        for item in validation_results
+        for reason in item.get("reasons", [])
+        if reason
+    )
+    raw_aliases = sum(len(entity.get("aliases", [])) for entity in canonical_entities)
+
+    return {
+        "extraction_coverage": {
+            "evidence_span_count": len(evidence_spans),
+            "evidence_spans_with_claims": len(cited_span_ids),
+            "coverage_rate": _ratio(len(cited_span_ids), len(evidence_spans)),
+            "claims_per_evidence_span": _ratio(len(claims), len(evidence_spans)),
+        },
+        "validation_quality": {
+            "passed": passed,
+            "needs_review": needs_review,
+            "failed": failed,
+            "pass_rate": _ratio(passed, validation_count),
+            "review_rate": _ratio(needs_review, validation_count),
+            "fail_rate": _ratio(failed, validation_count),
+        },
+        "promotion_readiness": {
+            "promotable": promotable,
+            "promotion_rate": _ratio(promotable, validation_count),
+        },
+        "entity_normalization": {
+            "canonical_entities": len(canonical_entities),
+            "raw_aliases": raw_aliases,
+            "average_aliases_per_entity": _ratio(raw_aliases, len(canonical_entities)),
+        },
+        "graph_agreement": graph_agreement,
+        "top_review_reasons": [
+            {"reason": reason, "count": count}
+            for reason, count in reason_counts.most_common(5)
+        ],
+    }
+
+
 # --- UI Route ---
 @app.get("/")
 async def serve_ui():
@@ -222,7 +299,13 @@ async def serve_app_v2(route_path: str = ""):
     ui_path = APP_V2_DIR / "index.html"
     if not ui_path.exists():
         raise HTTPException(status_code=404, detail="App v2 UI not built. Run npm build in frontend first.")
-    return FileResponse(ui_path)
+    return FileResponse(
+        ui_path,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 # --- API Routes ---
@@ -422,6 +505,8 @@ async def generate_executive_summary(document_id: str):
 
             vault.save_executive_summary(document_id, final, storyteller.model)
             yield f"data: {_json.dumps({'stage': 'complete', 'report': final})}\n\n"
+        except Exception as exc:
+            yield _sse_report_error(exc)
         finally:
             _active_generations.discard(document_id)
 
@@ -556,6 +641,53 @@ async def get_canvas_data(document_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/accuracy/{document_id}")
+async def get_accuracy_payload(document_id: str):
+    """Returns read-only claim-layer artefacts for inspection."""
+    try:
+        cursor = vault.conn.cursor()
+        cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        manifest = vault.get_document_manifest(document_id)
+        evidence_spans = vault.list_evidence_spans(document_id)
+        claims = vault.list_extracted_claims(document_id)
+        validation_results = vault.list_validation_results(document_id)
+        canonical_entities = vault.list_canonical_entities(document_id)
+        extraction_failures = vault.list_extraction_failures(document_id)
+
+        return {
+            "document_id": document_id,
+            "manifest": manifest,
+            "counts": {
+                "evidence_spans": len(evidence_spans),
+                "claims": len(claims),
+                "validated": sum(1 for item in validation_results if item.get("status") == "passed"),
+                "needs_review": sum(1 for item in validation_results if item.get("status") == "needs_review"),
+                "failed": sum(1 for item in validation_results if item.get("status") == "failed"),
+                "extraction_failures": len(extraction_failures),
+                "canonical_entities": len(canonical_entities),
+            },
+            "evidence_spans": evidence_spans,
+            "claims": claims,
+            "canonical_entities": canonical_entities,
+            "validation_results": validation_results,
+            "extraction_failures": extraction_failures,
+            "quality": _build_accuracy_quality(
+                evidence_spans=evidence_spans,
+                claims=claims,
+                validation_results=validation_results,
+                canonical_entities=canonical_entities,
+                graph_agreement=collect_parallel_graph_agreement(vault, document_id),
+            ),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/v1/reports/narrative/{document_id}")
 async def get_narrative_report(document_id: str):
     """Returns the cached narrative report, or {"cached": False} if not yet generated."""
@@ -620,6 +752,8 @@ async def generate_narrative_report(document_id: str):
 
             vault.save_narrative_report(document_id, final, drafter_or_storyteller.model)
             yield f"data: {_json.dumps({'stage': 'complete', 'report': final})}\n\n"
+        except Exception as exc:
+            yield _sse_report_error(exc)
         finally:
             _active_narratives.discard(document_id)
 
@@ -683,6 +817,8 @@ async def generate_risk_simulation(document_id: str):
             final_result = {"blast_radius": blast, "black_swan": black_swan, "monte_carlo": forecast}
             vault.save_risk_simulation(document_id, final_result)
             yield f"data: {_json.dumps({'stage': 'complete', 'result': final_result})}\n\n"
+        except Exception as exc:
+            yield _sse_report_error(exc)
         finally:
             _active_simulations.discard(document_id)
 
@@ -850,6 +986,7 @@ async def get_config():
         "FAST_MODEL":          vals.get("FAST_MODEL", ""),
         "SMART_MODEL":         vals.get("SMART_MODEL", ""),
         "VAULT_PATH":          vals.get("VAULT_PATH", ""),
+        "DIAMOND_MINER_CLAIM_LAYER": vals.get("DIAMOND_MINER_CLAIM_LAYER", ""),
     }
 
 
@@ -860,6 +997,7 @@ class ConfigUpdate(BaseModel):
     FAST_MODEL: str = ""
     SMART_MODEL: str = ""
     VAULT_PATH: str = ""
+    DIAMOND_MINER_CLAIM_LAYER: Literal["", "0", "1"] = ""
 
 
 def _resolve_key(submitted: str, existing: str) -> str:
@@ -881,6 +1019,7 @@ async def update_config(body: ConfigUpdate):
         "FAST_MODEL":         body.FAST_MODEL,
         "SMART_MODEL":        body.SMART_MODEL,
         "VAULT_PATH":         body.VAULT_PATH,
+        "DIAMOND_MINER_CLAIM_LAYER": body.DIAMOND_MINER_CLAIM_LAYER,
     }
     write_env(env_path, values)
     load_dotenv(dotenv_path=env_path, override=True)

@@ -2,13 +2,22 @@ import fitz  # PyMuPDF
 import uuid
 import re
 import csv
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any
 
 # Import our previously written modules
 from core.vault import HybridVault
-from core.agents import DeconstructorAgent, ContradictionHunterAgent, FragilityAgent, ChronosAgent
+from core.agents import DeconstructorAgent, ContradictionHunterAgent, FragilityAgent, ChronosAgent, _get_model
+from core.accuracy import claim_extractor
+from core.accuracy.deterministic_validator import validate_claim
+from core.accuracy.entity_canonicalizer import build_canonical_entities_from_claims
+from core.accuracy.evidence_span_builder import build_evidence_spans, compute_source_hash
+from core.accuracy.graph_promoter import promote_claim_to_topology
+from core.accuracy.schemas import DocumentManifest
+from core.risk_finding import build_risk_finding
 
 HUB_MIN_DEPENDENTS = 3
 
@@ -20,12 +29,19 @@ class DiamondOrchestrator:
         self.document_name = document_name
         self.vault = vault if vault is not None else HybridVault(tenant_id=tenant_id)
         self._log_fn = log_fn
+        self.accuracy_metrics: Dict[str, int] = {}
 
     def _emit(self, msg: str) -> None:
         """Prints to console and forwards to the optional UI log callback."""
         print(msg)
         if self._log_fn:
             self._log_fn(msg)
+
+    def _claim_layer_enabled(self) -> bool:
+        return os.environ.get("DIAMOND_MINER_CLAIM_LAYER", "").strip() == "1"
+
+    def _claim_promotion_enabled(self) -> bool:
+        return os.environ.get("DIAMOND_MINER_USE_CLAIM_PROMOTION", "").strip() == "1"
 
     def _parse_pdf_with_geometry(self, file_path: str) -> List[Dict[str, Any]]:
         """
@@ -214,6 +230,70 @@ class DiamondOrchestrator:
         self.vault.insert_document(self.document_id, self.document_name)
         self._emit(f"[*] Orchestrator: Parsing document {self.document_id}...")
         chunks = self._parse_document(file_path)
+        source_text = "\n\n".join(chunk["text"] for chunk in chunks)
+        source_hash = compute_source_hash(source_text)
+        if self._claim_layer_enabled():
+            manifest = DocumentManifest(
+                document_id=self.document_id,
+                filename=self.document_name,
+                source_hash=source_hash,
+                ingested_at=datetime.now(timezone.utc),
+                llm_model=_get_model("fast"),
+            )
+            self.vault.save_document_manifest(manifest)
+            spans = build_evidence_spans(
+                document_id=self.document_id,
+                chunks=chunks,
+                source_hash=source_hash,
+            )
+            self.vault.insert_evidence_spans(spans)
+            extraction_result = claim_extractor.extract_claims_with_failures(spans)
+            claims = extraction_result.claims
+            self.vault.insert_extraction_failures(extraction_result.failures)
+            known_span_ids = {span.span_id for span in spans}
+            validation_results = [
+                validate_claim(claim, known_span_ids=known_span_ids)
+                for claim in claims
+            ]
+            validated_claims = [
+                claim.model_copy(update={"validation_status": result.status})
+                for claim, result in zip(claims, validation_results)
+            ]
+            self.vault.insert_extracted_claims(validated_claims)
+            self.vault.insert_validation_results(validation_results)
+            canonical_entities = build_canonical_entities_from_claims(validated_claims)
+            self.vault.insert_canonical_entities(self.document_id, canonical_entities)
+            self.accuracy_metrics = {
+                "evidence_spans": len(spans),
+                "claims": len(claims),
+                "canonical_entities": len(canonical_entities),
+                "validated": sum(1 for result in validation_results if result.status == "passed"),
+                "needs_review": sum(1 for result in validation_results if result.status == "needs_review"),
+                "failed": sum(1 for result in validation_results if result.status == "failed"),
+                "promotable": sum(1 for result in validation_results if result.can_promote),
+                "extraction_failures": len(extraction_result.failures),
+            }
+            self.accuracy_metrics.update(extraction_result.metrics)
+            if self._claim_promotion_enabled():
+                promoted_nodes = []
+                promoted_edges = []
+                for claim in validated_claims:
+                    topology = promote_claim_to_topology(claim)
+                    promoted_nodes.extend(topology["nodes"])
+                    promoted_edges.extend(topology["edges"])
+                if promoted_nodes or promoted_edges:
+                    self.vault.insert_graph_topology(
+                        nodes=promoted_nodes,
+                        edges=promoted_edges,
+                        source_chunk_id="claim_layer",
+                        document_id=self.document_id,
+                    )
+            promotable_count = sum(1 for result in validation_results if result.can_promote)
+            self._emit(
+                f"[*] Claim Layer: Stored {len(spans)} evidence span(s), "
+                f"{len(claims)} claim(s), {promotable_count} promotable, "
+                f"{len(extraction_result.failures)} extraction failure(s)."
+            )
         self._emit(f"[*] Orchestrator: Extracted {len(chunks)} geometric chunks. Beginning parallel Deconstruction.")
 
         # Spin up concurrent threads to blast through the document chunk-by-chunk
@@ -256,10 +336,30 @@ class DiamondOrchestrator:
             name_c = names.get(conflict['node_c'], conflict['node_c'])
             structural_clash = f'"{name_a}" REQUIRES "{name_b}", but "{name_c}" BLOCKS "{name_b}"'
             result = ContradictionHunterAgent.synthesize_mitigation(structural_clash, combined_text)
-            return conflict, result
+            result_for_finding = dict(result)
+            raw_finding = result.get("finding") if isinstance(result.get("finding"), dict) else {}
+            claim_ids = conflict.get("claim_ids") or []
+            evidence_span_ids = conflict.get("evidence_span_ids") or []
+            if claim_ids or evidence_span_ids:
+                result_for_finding["finding"] = {
+                    **raw_finding,
+                    "claim_ids": claim_ids,
+                    "evidence_span_ids": evidence_span_ids,
+                    "claim_validation_status": raw_finding.get("claim_validation_status") or "passed",
+                }
+            finding = build_risk_finding(
+                result_for_finding,
+                risk_type="structural",
+                source_name=name_a,
+                target_name=name_c,
+                relationship="structural friction",
+                blocked_work=name_a,
+                blocking_condition=name_b,
+            )
+            return conflict, result, finding
 
         with ThreadPoolExecutor(max_workers=3) as executor:
-            for conflict, result in executor.map(_verify_conflict, enumerate(conflicts, 1)):
+            for conflict, result, finding in executor.map(_verify_conflict, enumerate(conflicts, 1)):
                 if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
                     spurious_count += 1
                     self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
@@ -271,6 +371,7 @@ class DiamondOrchestrator:
                     "provenance_ids": [conflict["chunk_requires"], conflict["chunk_blocks"]],
                     "severity": result.get("severity", 3),
                     "probability": result.get("probability", 3),
+                    "finding": finding,
                 })
 
         self._emit(f"[*] Contradiction Hunter: {len(verified_diamonds)} genuine conflict(s) confirmed, {spurious_count} spurious patterns discarded.")
@@ -350,10 +451,19 @@ class DiamondOrchestrator:
                 structural_clash=clash_payload,
                 source_text=prov_chunk.get("text", "No source text found.")
             )
-            return conflict, result
+            finding = build_risk_finding(
+                result,
+                risk_type="timeline",
+                source_name=pred_name,
+                target_name=succ_name,
+                relationship="chronological friction",
+                blocked_work=succ_name,
+                blocking_condition=pred_name,
+            )
+            return conflict, result, finding
 
         with ThreadPoolExecutor(max_workers=3) as executor:
-            for conflict, result in executor.map(_verify_time_conflict, enumerate(conflicts, 1)):
+            for conflict, result, finding in executor.map(_verify_time_conflict, enumerate(conflicts, 1)):
                 if not result.get("is_genuine") or result.get("confidence", 0) < CONFIDENCE_THRESHOLD:
                     spurious_count += 1
                     self._emit(f"       [skipped — spurious] confidence={result.get('confidence', 0):.2f}")
@@ -366,6 +476,7 @@ class DiamondOrchestrator:
                     "provenance_ids": [conflict["chunk_bridge"]],
                     "severity": result.get("severity", 3),
                     "probability": result.get("probability", 3),
+                    "finding": finding,
                 })
 
         self._emit(f"[*] Chronos: {len(verified_time_diamonds)} genuine time conflict(s), {spurious_count} spurious discarded.")

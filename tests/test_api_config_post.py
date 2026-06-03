@@ -29,6 +29,7 @@ def _valid_body(**overrides):
         "FAST_MODEL": "gpt-4o-mini",
         "SMART_MODEL": "gpt-4o",
         "VAULT_PATH": "./vaults",
+        "DIAMOND_MINER_CLAIM_LAYER": "1",
     }
     body.update(overrides)
     return body
@@ -49,6 +50,7 @@ class TestPostConfig:
         content = env_file.read_text()
         assert 'LLM_PROVIDER="openrouter"' in content
         assert 'FAST_MODEL="gpt-4o-mini"' in content
+        assert 'DIAMOND_MINER_CLAIM_LAYER="1"' in content
 
     def test_calls_load_dotenv_with_override(self, client):
         test_client, env_file = client
@@ -86,6 +88,7 @@ class TestPostConfig:
     def test_round_trip_get_after_post(self, client):
         test_client, env_file = client
         with patch("api.load_dotenv"):
-            test_client.post("/api/v1/config", json=_valid_body(FAST_MODEL="gpt-4o"))
+            test_client.post("/api/v1/config", json=_valid_body(FAST_MODEL="gpt-4o", DIAMOND_MINER_CLAIM_LAYER="0"))
         response = test_client.get("/api/v1/config")
         assert response.json()["FAST_MODEL"] == "gpt-4o"
+        assert response.json()["DIAMOND_MINER_CLAIM_LAYER"] == "0"

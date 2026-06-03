@@ -191,6 +191,29 @@ class TestPostNarrativeReport:
                 response = c.post("/api/v1/reports/narrative/doc_missing")
         assert response.status_code == 404
 
+    def test_post_streams_error_event_when_provider_fails(self):
+        mock_vault = _make_mock_vault(doc_exists=True)
+        raw_issues = _make_raw_issues_with_data()
+        mock_outline_agent = MagicMock()
+        mock_outline_agent.run.return_value = [{"title": "Chapter One", "indices": [0]}]
+        mock_storyteller = MagicMock()
+        mock_storyteller.run.side_effect = RuntimeError("provider rejected max_tokens")
+        mock_storyteller.model = "openrouter/test"
+
+        with patch("api.vault", mock_vault), \
+             patch("api._gather_raw_issues", return_value=raw_issues), \
+             patch("api.OutlineAgent", return_value=mock_outline_agent), \
+             patch("api.StorytellerAgent", return_value=mock_storyteller), \
+             patch("api._active_narratives", set()):
+            with TestClient(app) as c:
+                response = c.post("/api/v1/reports/narrative/doc_abc")
+
+        assert response.status_code == 200
+        events = _sse_events(response.text)
+        assert events[-1]["stage"] == "error"
+        assert "provider rejected max_tokens" in events[-1]["message"]
+        mock_vault.save_narrative_report.assert_not_called()
+
 
 class TestDeleteNarrativeReport:
     def test_delete_returns_204(self):

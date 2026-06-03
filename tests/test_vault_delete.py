@@ -111,3 +111,42 @@ class TestDeleteDocument:
         cursor = vault.conn.cursor()
         cursor.execute("SELECT id FROM fragility_lines WHERE document_id = 'doc_test'")
         assert cursor.fetchall() == []
+
+    def test_deletes_accuracy_layer_rows(self, vault):
+        from datetime import datetime, timezone
+
+        from core.accuracy.schemas import CanonicalEntity, DocumentManifest, EvidenceSpan
+
+        _seed_document(vault)
+        vault.save_document_manifest(DocumentManifest(
+            document_id="doc_test",
+            filename="test.pdf",
+            source_hash="sha256:abc",
+            ingested_at=datetime.now(timezone.utc),
+            llm_model="gpt-4o-mini",
+        ))
+        vault.insert_evidence_spans([EvidenceSpan(
+            span_id="span_1",
+            document_id="doc_test",
+            chunk_id="doc_test_chunk_1",
+            page_number=1,
+            text="Alpha requires Beta.",
+            span_type="sentence",
+            source_hash="sha256:abc",
+        )])
+        vault.insert_canonical_entities("doc_test", [
+            CanonicalEntity(
+                entity_id="entity_alpha",
+                canonical_name="Alpha",
+                entity_type="initiative",
+                aliases=["Alpha"],
+                source_span_ids=["span_1"],
+                confidence=0.9,
+            )
+        ])
+
+        vault.delete_document("doc_test")
+
+        assert vault.get_document_manifest("doc_test") is None
+        assert vault.list_evidence_spans("doc_test") == []
+        assert vault.list_canonical_entities("doc_test") == []

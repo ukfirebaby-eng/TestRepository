@@ -121,6 +121,24 @@ class TestPostExecutiveSummary:
         self._run_post_stream(mock_vault)
         mock_vault.save_executive_summary.assert_called_once()
 
+    def test_streams_error_event_when_provider_fails(self):
+        mock_vault = _make_mock_vault()
+        mock_storyteller = MagicMock()
+        mock_storyteller.run.side_effect = RuntimeError("provider rejected max_tokens")
+        mock_storyteller.model = "openrouter/test"
+
+        with patch("api.vault", mock_vault), \
+             patch("api.StorytellerAgent", return_value=mock_storyteller), \
+             patch("api._active_generations", set()):
+            with TestClient(app) as c:
+                response = c.post("/api/v1/reports/executive-summary/doc_abc")
+
+        assert response.status_code == 200
+        events = [json.loads(line[5:]) for line in response.text.splitlines() if line.startswith("data:")]
+        assert events[-1]["stage"] == "error"
+        assert "provider rejected max_tokens" in events[-1]["message"]
+        mock_vault.save_executive_summary.assert_not_called()
+
 
 class TestDeleteExecutiveSummary:
     def test_returns_404_for_missing_document(self):

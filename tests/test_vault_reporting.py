@@ -309,3 +309,55 @@ class TestUpsertFrictionLinesWithScores:
         result = vault.get_friction_lines("doc_score_default")
         assert result[0]["severity"] == 3
         assert result[0]["probability"] == 3
+
+    def test_structured_finding_round_trip_friction_lines(self, vault):
+        vault.insert_document("doc_finding_fl", "x.pdf")
+        finding = {
+            "title": "Audit evidence readiness conflict",
+            "risk_type": "evidence readiness",
+            "affected_entity": "Orion Programme",
+            "blocked_work": "board sign-off",
+            "blocking_condition": "approved transaction history",
+            "evidence_summary": "Evidence is produced before source data is approved.",
+            "why_it_matters": "Board sign-off could rely on invalid evidence.",
+            "recommended_action": "Make approved source data a hard entry criterion.",
+            "confidence": 0.88,
+            "assumptions": [],
+        }
+        vault.upsert_friction_lines("doc_finding_fl", [{
+            "source": "programme",
+            "target": "programme",
+            "diamond": "legacy analysis",
+            "provenance_ids": ["chunk_1"],
+            "finding": finding,
+        }])
+
+        result = vault.get_friction_lines("doc_finding_fl")
+
+        assert result[0]["finding"] == finding
+
+    def test_structured_finding_round_trip_chronological_friction_lines(self, vault):
+        vault.insert_document("doc_finding_cf", "x.pdf")
+        finding = {
+            "title": "Launch starts before DR completion",
+            "risk_type": "timeline",
+            "affected_entity": "Public Launch",
+            "blocked_work": "Public Launch",
+            "blocking_condition": "Identity Token Service DR",
+            "evidence_summary": "Launch starts before DR completes.",
+            "why_it_matters": "Launch readiness would be unsupported.",
+            "recommended_action": "Move launch until after DR sign-off.",
+            "confidence": 0.9,
+            "assumptions": [],
+        }
+        vault.upsert_chronological_friction_lines("doc_finding_cf", [{
+            "source": "dr",
+            "target": "launch",
+            "diamond": "legacy timeline analysis",
+            "provenance_ids": ["chunk_2"],
+            "finding": finding,
+        }])
+
+        result = vault.get_chronological_friction_lines("doc_finding_cf")
+
+        assert result[0]["finding"] == finding

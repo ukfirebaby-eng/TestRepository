@@ -84,6 +84,20 @@ class TestStorytellerAgent:
         prompt_text = str(call_args)
         assert "MUST INCLUDE" in prompt_text
 
+    def test_run_caps_completion_tokens_for_provider_credit_limits(self):
+        from core.agents import StorytellerAgent
+        agent = StorytellerAgent()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_openai_response(
+            json.dumps(_draft_report())
+        )
+
+        with patch("core.agents._get_client", return_value=mock_client):
+            agent.run(_raw_issues())
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["max_tokens"] <= 4096
+
     def test_zero_issues_returns_no_issues_found_report(self):
         from core.agents import StorytellerAgent
         agent = StorytellerAgent()

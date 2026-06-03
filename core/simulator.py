@@ -460,10 +460,13 @@ class MonteCarloForecaster:
 
             for nid in top_node_ids:
                 idx = node_index[nid]
+                displayed_mean_delay = int(mean_delays[idx])
+                if displayed_mean_delay <= 0:
+                    continue
                 at_risk_nodes.append({
                     "id": nid,
                     "name": name_map.get(nid, nid),
-                    "mean_delay_days": int(mean_delays[idx]),
+                    "mean_delay_days": displayed_mean_delay,
                 })
 
         # ── 6. Return ─────────────────────────────────────────────────────────

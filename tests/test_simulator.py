@@ -439,3 +439,4 @@ class TestMonteCarloForecaster:
         # With 1-day tasks and no friction, most delay samples round to 0
         # p95 should be very small (variance of ±20% of 1 day is tiny)
         assert result["p95_delay_days"] <= 5
+        assert result["at_risk_nodes"] == []

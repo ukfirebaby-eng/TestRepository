@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List
 
+from core.accuracy.entity_canonicalizer import canonical_entity_id
 from core.orchestrator import DiamondOrchestrator
 from core.vault import HybridVault
 
@@ -96,6 +97,355 @@ def evaluate_baseline(vault: Any, baseline_path: str | Path) -> Dict[str, Any]:
     """Evaluate a vault document against a JSON baseline file."""
     baseline = load_evaluation_baseline(baseline_path)
     result = evaluate_document(vault, baseline["document_id"], baseline["expectations"])
+    result["baseline_path"] = str(Path(baseline_path))
+    result["document_path"] = str(baseline.get("document_path", ""))
+    return result
+
+
+def _list_or_empty(vault: Any, method_name: str, document_id: str) -> List[Dict[str, Any]]:
+    method = getattr(vault, method_name, None)
+    if not callable(method):
+        return []
+    return method(document_id)
+
+
+def _claim_signature(claim: Dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(claim.get("claim_type", "")).strip().lower(),
+        canonical_entity_id(str(claim.get("subject", ""))),
+        canonical_entity_id(str(claim.get("object", ""))),
+    )
+
+
+def _expected_claim_signature(claim: Dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(claim.get("claim_type", "")).strip().lower(),
+        canonical_entity_id(str(claim.get("subject", ""))),
+        canonical_entity_id(str(claim.get("object", ""))),
+    )
+
+
+def collect_claim_layer_metrics(vault: Any, document_id: str) -> Dict[str, Any]:
+    """Collect deterministic metrics for the evidence/claim accuracy layer."""
+    evidence_spans = _list_or_empty(vault, "list_evidence_spans", document_id)
+    claims = _list_or_empty(vault, "list_extracted_claims", document_id)
+    validation_results = _list_or_empty(vault, "list_validation_results", document_id)
+    canonical_entities = _list_or_empty(vault, "list_canonical_entities", document_id)
+    extraction_failures = _list_or_empty(vault, "list_extraction_failures", document_id)
+    validation_count = len(validation_results)
+    validated_claim_count = sum(1 for item in validation_results if item.get("status") == "passed")
+    needs_review_claim_count = sum(1 for item in validation_results if item.get("status") == "needs_review")
+    failed_claim_count = sum(1 for item in validation_results if item.get("status") == "failed")
+    promotable_claim_count = sum(1 for item in validation_results if item.get("can_promote"))
+
+    return {
+        "evidence_span_count": len(evidence_spans),
+        "claim_count": len(claims),
+        "validated_claim_count": validated_claim_count,
+        "needs_review_claim_count": needs_review_claim_count,
+        "failed_claim_count": failed_claim_count,
+        "promotable_claim_count": promotable_claim_count,
+        "canonical_entity_count": len(canonical_entities),
+        "extraction_failure_count": len(extraction_failures),
+        "validation_pass_rate": round(validated_claim_count / validation_count, 4) if validation_count else 0.0,
+        "promotion_rate": round(promotable_claim_count / validation_count, 4) if validation_count else 0.0,
+    }
+
+
+def evaluate_claim_layer(
+    vault: Any,
+    document_id: str,
+    expectations: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Evaluate stored claim-layer artifacts against expected canonical claims."""
+    claims = _list_or_empty(vault, "list_extracted_claims", document_id)
+    actual_signatures = {_claim_signature(claim) for claim in claims}
+    expected_claims = expectations.get("expected_claims", [])
+    matched_claim_count = 0
+    missing_claims = []
+
+    for expected_claim in expected_claims:
+        if _expected_claim_signature(expected_claim) in actual_signatures:
+            matched_claim_count += 1
+        else:
+            missing_claims.append(expected_claim)
+
+    metrics = collect_claim_layer_metrics(vault, document_id)
+    metrics["expected_claim_count"] = len(expected_claims)
+    metrics["matched_expected_claim_count"] = matched_claim_count
+    metrics["claim_match_rate"] = round(matched_claim_count / len(expected_claims), 4) if expected_claims else 1.0
+    failures = compare_metrics(metrics, expectations.get("metrics", {}))
+    for missing_claim in missing_claims:
+        failures.append(
+            "missing expected claim: "
+            f"{missing_claim.get('claim_type')} "
+            f"{missing_claim.get('subject')} -> {missing_claim.get('object')}"
+        )
+
+    return {
+        "document_id": document_id,
+        "passed": not failures,
+        "metrics": metrics,
+        "failures": failures,
+        "missing_claims": missing_claims,
+    }
+
+
+def evaluate_claim_layer_baseline(vault: Any, baseline_path: str | Path) -> Dict[str, Any]:
+    """Evaluate claim-layer artifacts using a JSON fixture baseline."""
+    baseline = load_evaluation_baseline(baseline_path)
+    result = evaluate_claim_layer(vault, baseline["document_id"], baseline["claim_expectations"])
+    result["baseline_path"] = str(Path(baseline_path))
+    result["document_path"] = str(baseline.get("document_path", ""))
+    return result
+
+
+def _claim_promoted_edges(vault: Any, document_id: str) -> List[Dict[str, Any]]:
+    cursor = vault.conn.cursor()
+    cursor.execute(
+        """
+        SELECT source_id, target_id, relationship, claim_id, evidence_span_ids
+        FROM edges
+        WHERE document_id = ?
+          AND source_chunk_id = 'claim_layer'
+        ORDER BY source_id, relationship, target_id
+        """,
+        (document_id,),
+    )
+    edges = []
+    for row in cursor.fetchall():
+        item = dict(row)
+        if item.get("evidence_span_ids"):
+            try:
+                item["evidence_span_ids"] = json.loads(item["evidence_span_ids"])
+            except json.JSONDecodeError:
+                item["evidence_span_ids"] = []
+        else:
+            item["evidence_span_ids"] = []
+        edges.append(item)
+    return edges
+
+
+def _promoted_edge_signature(edge: Dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(edge.get("source_id", "")),
+        str(edge.get("relationship", "")).strip().upper(),
+        str(edge.get("target_id", "")),
+    )
+
+
+def _expected_promoted_edge_signature(edge: Dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        canonical_entity_id(str(edge.get("source", ""))),
+        str(edge.get("relationship", "")).strip().upper(),
+        canonical_entity_id(str(edge.get("target", ""))),
+    )
+
+
+def collect_claim_promotion_metrics(vault: Any, document_id: str) -> Dict[str, Any]:
+    """Collect deterministic metrics for graph edges promoted from validated claims."""
+    edges = _claim_promoted_edges(vault, document_id)
+    node_ids = {
+        node_id
+        for edge in edges
+        for node_id in [edge.get("source_id"), edge.get("target_id")]
+        if node_id
+    }
+    return {
+        "promoted_node_count": len(node_ids),
+        "promoted_edge_count": len(edges),
+        "promoted_self_edge_count": sum(1 for edge in edges if edge.get("source_id") == edge.get("target_id")),
+        "promoted_edges_with_claim_id": sum(1 for edge in edges if edge.get("claim_id")),
+        "promoted_edges_with_evidence": sum(1 for edge in edges if edge.get("evidence_span_ids")),
+    }
+
+
+def evaluate_claim_promotion(
+    vault: Any,
+    document_id: str,
+    expectations: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Evaluate claim-promoted graph edges against expected canonical edges."""
+    actual_signatures = {_promoted_edge_signature(edge) for edge in _claim_promoted_edges(vault, document_id)}
+    expected_edges = expectations.get("expected_edges", [])
+    matched_edge_count = 0
+    missing_edges = []
+
+    for expected_edge in expected_edges:
+        if _expected_promoted_edge_signature(expected_edge) in actual_signatures:
+            matched_edge_count += 1
+        else:
+            missing_edges.append(expected_edge)
+
+    metrics = collect_claim_promotion_metrics(vault, document_id)
+    metrics["expected_promoted_edge_count"] = len(expected_edges)
+    metrics["matched_promoted_edge_count"] = matched_edge_count
+    metrics["promoted_edge_match_rate"] = round(matched_edge_count / len(expected_edges), 4) if expected_edges else 1.0
+    failures = compare_metrics(metrics, expectations.get("metrics", {}))
+    for missing_edge in missing_edges:
+        failures.append(
+            "missing promoted edge: "
+            f"{missing_edge.get('source')} "
+            f"{missing_edge.get('relationship')} "
+            f"{missing_edge.get('target')}"
+        )
+
+    return {
+        "document_id": document_id,
+        "passed": not failures,
+        "metrics": metrics,
+        "failures": failures,
+        "missing_edges": missing_edges,
+    }
+
+
+def evaluate_claim_promotion_baseline(vault: Any, baseline_path: str | Path) -> Dict[str, Any]:
+    """Evaluate claim-promoted graph edges using a JSON fixture baseline."""
+    baseline = load_evaluation_baseline(baseline_path)
+    result = evaluate_claim_promotion(vault, baseline["document_id"], baseline["promotion_expectations"])
+    result["baseline_path"] = str(Path(baseline_path))
+    result["document_path"] = str(baseline.get("document_path", ""))
+    return result
+
+
+def _graph_edges(vault: Any, document_id: str) -> List[Dict[str, Any]]:
+    cursor = vault.conn.cursor()
+    cursor.execute(
+        """
+        SELECT source_id, target_id, relationship, source_chunk_id, claim_id, evidence_span_ids
+        FROM edges
+        WHERE document_id = ?
+        ORDER BY source_id, relationship, target_id, source_chunk_id
+        """,
+        (document_id,),
+    )
+    edges = []
+    for row in cursor.fetchall():
+        item = dict(row)
+        if item.get("evidence_span_ids"):
+            try:
+                item["evidence_span_ids"] = json.loads(item["evidence_span_ids"])
+            except json.JSONDecodeError:
+                item["evidence_span_ids"] = []
+        else:
+            item["evidence_span_ids"] = []
+        edges.append(item)
+    return edges
+
+
+def _canonical_graph_node_id(node_id: str) -> str:
+    raw = str(node_id or "").strip()
+    if raw.startswith("entity_"):
+        return raw
+    return canonical_entity_id(raw.replace("_", " "))
+
+
+def _canonical_graph_edge_signature(edge: Dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        _canonical_graph_node_id(str(edge.get("source_id", ""))),
+        str(edge.get("relationship", "")).strip().upper(),
+        _canonical_graph_node_id(str(edge.get("target_id", ""))),
+    )
+
+
+def _graph_edge_sample(edge: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "source_id": edge.get("source_id"),
+        "target_id": edge.get("target_id"),
+        "relationship": str(edge.get("relationship", "")).strip().upper(),
+        "canonical_source_id": _canonical_graph_node_id(str(edge.get("source_id", ""))),
+        "canonical_target_id": _canonical_graph_node_id(str(edge.get("target_id", ""))),
+        "source_chunk_id": edge.get("source_chunk_id"),
+        "claim_id": edge.get("claim_id"),
+        "evidence_span_ids": edge.get("evidence_span_ids", []),
+    }
+
+
+def collect_parallel_graph_metrics(vault: Any, document_id: str) -> Dict[str, Any]:
+    """Compare legacy graph edges with claim-promoted graph edges by canonical endpoint IDs."""
+    edges = _graph_edges(vault, document_id)
+    legacy_edges = [edge for edge in edges if edge.get("source_chunk_id") != "claim_layer"]
+    claim_edges = [edge for edge in edges if edge.get("source_chunk_id") == "claim_layer"]
+    legacy_signatures = {_canonical_graph_edge_signature(edge) for edge in legacy_edges}
+    claim_signatures = {_canonical_graph_edge_signature(edge) for edge in claim_edges}
+    shared_signatures = legacy_signatures & claim_signatures
+
+    return {
+        "legacy_edge_count": len(legacy_edges),
+        "claim_promoted_edge_count": len(claim_edges),
+        "shared_canonical_edge_count": len(shared_signatures),
+        "legacy_only_edge_count": len(legacy_signatures - claim_signatures),
+        "claim_only_edge_count": len(claim_signatures - legacy_signatures),
+        "claim_vs_legacy_overlap_rate": round(len(shared_signatures) / len(claim_signatures), 4)
+        if claim_signatures
+        else 1.0,
+    }
+
+
+def collect_parallel_graph_agreement(vault: Any, document_id: str) -> Dict[str, Any]:
+    """Return graph agreement metrics plus representative mismatch samples for review."""
+    edges = _graph_edges(vault, document_id)
+    legacy_edges = [edge for edge in edges if edge.get("source_chunk_id") != "claim_layer"]
+    claim_edges = [edge for edge in edges if edge.get("source_chunk_id") == "claim_layer"]
+    legacy_by_signature = {
+        _canonical_graph_edge_signature(edge): edge
+        for edge in legacy_edges
+    }
+    claim_by_signature = {
+        _canonical_graph_edge_signature(edge): edge
+        for edge in claim_edges
+    }
+    legacy_signatures = set(legacy_by_signature)
+    claim_signatures = set(claim_by_signature)
+    shared_signatures = legacy_signatures & claim_signatures
+    legacy_only_signatures = sorted(legacy_signatures - claim_signatures)
+    claim_only_signatures = sorted(claim_signatures - legacy_signatures)
+
+    return {
+        "legacy_edge_count": len(legacy_edges),
+        "claim_promoted_edge_count": len(claim_edges),
+        "shared_canonical_edge_count": len(shared_signatures),
+        "legacy_only_edge_count": len(legacy_only_signatures),
+        "claim_only_edge_count": len(claim_only_signatures),
+        "claim_vs_legacy_overlap_rate": round(len(shared_signatures) / len(claim_signatures), 4)
+        if claim_signatures
+        else 1.0,
+        "legacy_only_edges": [
+            _graph_edge_sample(legacy_by_signature[signature])
+            for signature in legacy_only_signatures[:10]
+        ],
+        "claim_only_edges": [
+            _graph_edge_sample(claim_by_signature[signature])
+            for signature in claim_only_signatures[:10]
+        ],
+    }
+
+
+def evaluate_parallel_graph_comparison(
+    vault: Any,
+    document_id: str,
+    expectations: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Evaluate legacy-vs-claim graph overlap without changing ingestion defaults."""
+    metrics = collect_parallel_graph_metrics(vault, document_id)
+    failures = compare_metrics(metrics, expectations.get("metrics", {}))
+
+    return {
+        "document_id": document_id,
+        "passed": not failures,
+        "metrics": metrics,
+        "failures": failures,
+    }
+
+
+def evaluate_parallel_graph_baseline(vault: Any, baseline_path: str | Path) -> Dict[str, Any]:
+    """Evaluate parallel legacy-vs-claim graph metrics using a JSON fixture baseline."""
+    baseline = load_evaluation_baseline(baseline_path)
+    result = evaluate_parallel_graph_comparison(
+        vault,
+        baseline["document_id"],
+        baseline["parallel_expectations"],
+    )
     result["baseline_path"] = str(Path(baseline_path))
     result["document_path"] = str(baseline.get("document_path", ""))
     return result

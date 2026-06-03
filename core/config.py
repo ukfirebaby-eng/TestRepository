@@ -8,6 +8,7 @@ _ENV_KEYS: List[str] = [
     "OPENROUTER_API_KEY",
     "FAST_MODEL",
     "SMART_MODEL",
+    "DIAMOND_MINER_CLAIM_LAYER",
 ]
 
 
