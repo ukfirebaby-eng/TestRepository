@@ -1464,6 +1464,31 @@ button { cursor: pointer; }
   line-height: 1.35;
   margin-top: 4px;
 }
+.generated-grounding {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+.generated-grounding span,
+.generated-grounding small {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 0;
+  border: 1px solid rgba(245, 201, 95, 0.2);
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: rgba(245, 201, 95, 0.07);
+  color: #f5c95f;
+  font-size: 0.62rem;
+  line-height: 1.2;
+}
+.generated-grounding small {
+  border-color: rgba(115, 198, 232, 0.22);
+  background: rgba(115, 198, 232, 0.07);
+  color: #a8cedd;
+}
 .risk-matrix-panel {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

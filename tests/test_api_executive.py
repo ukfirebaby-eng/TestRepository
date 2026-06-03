@@ -3,7 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
-from api import app
+from api import app, _attach_report_grounding, _gather_raw_issues
 
 
 def _make_mock_vault(doc_exists=True, cached_report=None):
@@ -60,6 +60,74 @@ class TestGetExecutiveSummary:
         data = response.json()
         assert data["cached"] is True
         assert data["report"]["overall_assessment"] == "No Issues Found"
+
+
+class TestReportGrounding:
+    def test_gather_raw_issues_adds_grounding_from_structured_findings(self):
+        mock_vault = _make_mock_vault()
+        mock_vault.get_friction_lines.return_value = [{
+            "source": "cloud_migration",
+            "target": "security_certification",
+            "diamond": "Migration starts before certification.",
+            "severity": 4,
+            "probability": 4,
+            "finding": {
+                "confidence_score": 0.96,
+                "confidence_level": "high",
+                "claim_ids": ["claim_1"],
+                "evidence_span_ids": ["span_1", "span_2"],
+                "claim_validation_status": "passed",
+            },
+        }]
+
+        with patch("api.vault", mock_vault):
+            raw = _gather_raw_issues("doc_abc")
+
+        grounding = raw["friction_lines"][0]["grounding"]
+        assert grounding["confidence_score"] == 0.96
+        assert grounding["confidence_level"] == "high"
+        assert grounding["claim_ids"] == ["claim_1"]
+        assert grounding["evidence_span_ids"] == ["span_1", "span_2"]
+        assert grounding["evidence_basis"] == "validated_claims"
+
+    def test_attach_report_grounding_adds_summary_and_issue_metadata(self):
+        report = {
+            **_minimal_report(),
+            "issues": [{
+                "severity": "high",
+                "title": "Migration starts before certification",
+                "plain_english": "Cloud migration is starting before security certification.",
+                "solution": "Move migration until certification is complete.",
+                "source_nodes": ["cloud_migration", "security_certification"],
+            }],
+        }
+        raw_issues = {
+            "friction_lines": [{
+                "source": "cloud_migration",
+                "target": "security_certification",
+                "grounding": {
+                    "confidence_score": 0.96,
+                    "confidence_level": "high",
+                    "claim_ids": ["claim_1"],
+                    "evidence_span_ids": ["span_1", "span_2"],
+                    "claim_validation_status": "passed",
+                    "evidence_basis": "validated_claims",
+                },
+            }],
+            "chronological_friction_lines": [],
+            "hub_vulnerabilities": [],
+        }
+
+        grounded = _attach_report_grounding(report, raw_issues)
+
+        assert grounded["grounding_summary"] == {
+            "grounded_issue_count": 1,
+            "validated_claim_count": 1,
+            "evidence_span_count": 2,
+            "highest_confidence_level": "high",
+        }
+        assert grounded["issues"][0]["grounding"]["confidence_score"] == 0.96
+        assert grounded["issues"][0]["grounding"]["evidence_basis"] == "validated_claims"
 
 
 class TestPostExecutiveSummary:

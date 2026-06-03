@@ -72,6 +72,51 @@ function plural(count: number, singular: string, pluralLabel = `${singular}s`) {
   return `${count.toLocaleString()} ${count === 1 ? singular : pluralLabel}`;
 }
 
+function titleCase(value: string): string {
+  return value ? `${value.charAt(0).toUpperCase()}${value.slice(1).toLowerCase()}` : value;
+}
+
+function countItems(value: unknown): number {
+  return Array.isArray(value) ? value.filter(Boolean).length : 0;
+}
+
+function GroundingSummary({ grounding }: { grounding: unknown }) {
+  const detail = asRecord(grounding);
+  if (!Object.keys(detail).length) return null;
+
+  const rawScore = detail.confidence_score;
+  const confidencePercent = typeof rawScore === "number" && Number.isFinite(rawScore)
+    ? Math.round(rawScore * 100)
+    : null;
+  const confidenceLevel = typeof detail.confidence_level === "string" && detail.confidence_level.trim()
+    ? titleCase(detail.confidence_level.trim())
+    : null;
+  const confidenceText = confidenceLevel || confidencePercent !== null
+    ? `${confidenceLevel || "Evidence"} confidence${confidencePercent !== null ? ` ${confidencePercent}%` : ""}`
+    : null;
+
+  const validatedCount = typeof detail.validated_claim_count === "number"
+    ? detail.validated_claim_count
+    : detail.evidence_basis === "validated_claims"
+      ? countItems(detail.claim_ids)
+      : 0;
+  const claimCount = typeof detail.claim_count === "number" ? detail.claim_count : countItems(detail.claim_ids);
+  const evidenceSpanCount = typeof detail.evidence_span_count === "number" ? detail.evidence_span_count : countItems(detail.evidence_span_ids);
+  const supportParts = [
+    validatedCount > 0 ? plural(validatedCount, "validated claim") : claimCount > 0 ? plural(claimCount, "claim") : null,
+    evidenceSpanCount > 0 ? plural(evidenceSpanCount, "evidence span") : null,
+  ].filter(Boolean);
+
+  if (!confidenceText && !supportParts.length) return null;
+
+  return (
+    <div className="generated-grounding">
+      {confidenceText && <span>{confidenceText}</span>}
+      {supportParts.length > 0 && <small>{supportParts.join(" · ")}</small>}
+    </div>
+  );
+}
+
 function initialState(): ReportState {
   return { status: "checking", payload: null, message: "Checking cache..." };
 }
@@ -197,7 +242,7 @@ export function GeneratedReportsPanel({ documentId, documentName, variant = "rai
   );
 }
 
-function ExecutiveReport({ payload }: { payload: unknown }) {
+export function ExecutiveReport({ payload }: { payload: unknown }) {
   const report = asRecord(payload);
   const issues = asArray(report.issues).slice(0, 5);
   return (
@@ -214,6 +259,7 @@ function ExecutiveReport({ payload }: { payload: unknown }) {
             <span>{text(issue.severity, "Unscored")}</span>
             <strong>{text(issue.title, "Untitled issue")}</strong>
             <small>{snippet(issue.plain_english || issue.solution)}</small>
+            <GroundingSummary grounding={issue.grounding} />
           </div>
         ))}
       </div>
@@ -238,6 +284,7 @@ function NarrativeReport({ payload }: { payload: unknown }) {
             <span>Chapter {index + 1}</span>
             <strong>{text(chapter.title, "Untitled chapter")}</strong>
             <small>{snippet(chapter.narrative)}</small>
+            <GroundingSummary grounding={chapter.grounding_summary} />
           </div>
         ))}
       </div>

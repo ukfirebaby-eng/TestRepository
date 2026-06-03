@@ -192,12 +192,147 @@ def _run_ingestion_task(job_id: str, file_path: str, tenant_id: str, document_id
 
 def _gather_raw_issues(document_id: str) -> dict:
     """Collates all raw issue data from the vault for the Storyteller prompt."""
+    friction_lines = [
+        _with_issue_grounding(line)
+        for line in vault.get_friction_lines(document_id)
+    ]
+    chronological_friction_lines = [
+        _with_issue_grounding(line)
+        for line in vault.get_chronological_friction_lines(document_id)
+    ]
     return {
-        "friction_lines": vault.get_friction_lines(document_id),
-        "chronological_friction_lines": vault.get_chronological_friction_lines(document_id),
+        "friction_lines": friction_lines,
+        "chronological_friction_lines": chronological_friction_lines,
         "hub_vulnerabilities": vault.get_hub_vulnerabilities(document_id),
         "risk_matrix": vault.get_risk_matrix_data(document_id),
     }
+
+
+def _list_values(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _issue_grounding(issue: Dict[str, Any]) -> Dict[str, Any] | None:
+    finding = issue.get("finding") if isinstance(issue.get("finding"), dict) else {}
+    claim_ids = _list_values(finding.get("claim_ids") or issue.get("claim_ids"))
+    evidence_span_ids = _list_values(finding.get("evidence_span_ids") or issue.get("evidence_span_ids"))
+    confidence_score = finding.get("confidence_score", issue.get("confidence_score"))
+    confidence_level = finding.get("confidence_level", issue.get("confidence_level"))
+    validation_status = str(finding.get("claim_validation_status") or issue.get("claim_validation_status") or "").strip()
+    graph_agreement = str(finding.get("graph_agreement") or issue.get("graph_agreement") or "").strip()
+
+    if validation_status.lower() in {"passed", "validated"} and claim_ids:
+        evidence_basis = "validated_claims"
+    elif claim_ids:
+        evidence_basis = "claims"
+    elif evidence_span_ids:
+        evidence_basis = "evidence_spans"
+    elif confidence_score is not None or confidence_level:
+        evidence_basis = "legacy_graph"
+    else:
+        return None
+
+    return {
+        "confidence_score": confidence_score,
+        "confidence_level": confidence_level,
+        "claim_ids": claim_ids,
+        "evidence_span_ids": evidence_span_ids,
+        "claim_validation_status": validation_status or None,
+        "graph_agreement": graph_agreement or None,
+        "evidence_basis": evidence_basis,
+    }
+
+
+def _with_issue_grounding(issue: Dict[str, Any]) -> Dict[str, Any]:
+    grounding = _issue_grounding(issue)
+    if not grounding:
+        return issue
+    return {**issue, "grounding": grounding}
+
+
+def _flat_groundings(raw_issues: Dict[str, Any]) -> List[Dict[str, Any]]:
+    groundings = []
+    for key in ["friction_lines", "chronological_friction_lines"]:
+        for issue in raw_issues.get(key, []):
+            if isinstance(issue, dict):
+                grounding = issue.get("grounding") if isinstance(issue.get("grounding"), dict) else _issue_grounding(issue)
+                if grounding:
+                    groundings.append(grounding)
+    return groundings
+
+
+def _grounding_summary(groundings: List[Dict[str, Any]]) -> Dict[str, Any]:
+    confidence_rank = {"high": 3, "medium": 2, "low": 1}
+    levels = [str(item.get("confidence_level") or "").lower() for item in groundings]
+    highest = max(levels, key=lambda level: confidence_rank.get(level, 0), default="")
+    claim_ids = {
+        claim_id
+        for grounding in groundings
+        for claim_id in grounding.get("claim_ids", [])
+        if claim_id
+    }
+    evidence_span_ids = {
+        span_id
+        for grounding in groundings
+        for span_id in grounding.get("evidence_span_ids", [])
+        if span_id
+    }
+    validated_claim_ids = {
+        claim_id
+        for grounding in groundings
+        if grounding.get("evidence_basis") == "validated_claims"
+        for claim_id in grounding.get("claim_ids", [])
+        if claim_id
+    }
+    return {
+        "grounded_issue_count": len(groundings),
+        "validated_claim_count": len(validated_claim_ids),
+        "evidence_span_count": len(evidence_span_ids),
+        "highest_confidence_level": highest or None,
+    }
+
+
+def _attach_report_grounding(report: Dict[str, Any], raw_issues: Dict[str, Any]) -> Dict[str, Any]:
+    """Adds deterministic evidence provenance to generated reports."""
+    groundings = _flat_groundings(raw_issues)
+    if not groundings:
+        return report
+
+    grounded_report = dict(report)
+    grounded_report["grounding_summary"] = _grounding_summary(groundings)
+    if isinstance(report.get("issues"), list):
+        grounded_issues = []
+        for index, issue in enumerate(report["issues"]):
+            if isinstance(issue, dict):
+                grounding = issue.get("grounding") or groundings[min(index, len(groundings) - 1)]
+                grounded_issues.append({**issue, "grounding": grounding})
+            else:
+                grounded_issues.append(issue)
+        grounded_report["issues"] = grounded_issues
+    if isinstance(report.get("chapters"), list):
+        grounded_chapters = []
+        for chapter in report["chapters"]:
+            if isinstance(chapter, dict) and chapter.get("indices"):
+                chapter_groundings = [
+                    groundings[index]
+                    for index in chapter.get("indices", [])
+                    if isinstance(index, int) and 0 <= index < len(groundings)
+                ]
+                if chapter_groundings:
+                    grounded_chapters.append({
+                        **chapter,
+                        "grounding_summary": _grounding_summary(chapter_groundings),
+                    })
+                else:
+                    grounded_chapters.append(chapter)
+            else:
+                grounded_chapters.append(chapter)
+        grounded_report["chapters"] = grounded_chapters
+    return grounded_report
 
 
 def _sse_report_error(exc: Exception) -> str:
@@ -502,6 +637,7 @@ async def generate_executive_summary(document_id: str):
             yield f"data: {_json.dumps({'stage': 'verifying', 'message': 'Verifying coverage...'})}\n\n"
             kde = KDECoverageCheck(vault)
             final = await asyncio.to_thread(kde.check, document_id, audited)
+            final = _attach_report_grounding(final, raw_issues)
 
             vault.save_executive_summary(document_id, final, storyteller.model)
             yield f"data: {_json.dumps({'stage': 'complete', 'report': final})}\n\n"
@@ -749,6 +885,7 @@ async def generate_narrative_report(document_id: str):
 
             yield f"data: {_json.dumps({'stage': 'verifying', 'message': 'Verifying coverage\u2026'})}\n\n"
             final = await asyncio.to_thread(KDECoverageCheck(vault).check, document_id, audited)
+            final = _attach_report_grounding(final, raw_issues)
 
             vault.save_narrative_report(document_id, final, drafter_or_storyteller.model)
             yield f"data: {_json.dumps({'stage': 'complete', 'report': final})}\n\n"
