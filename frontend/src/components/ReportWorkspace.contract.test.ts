@@ -11,4 +11,11 @@ describe("ReportWorkspace contract", () => {
     expect(source).toContain('variant="workspace"');
     expect(source).toContain("report-workspace");
   });
+
+  it("supports report-to-graph focus navigation", () => {
+    const source = readFileSync(resolve(__dirname, "ReportWorkspace.tsx"), "utf-8");
+
+    expect(source).toContain("onFocusGraphItem");
+    expect(source).toContain("OperationalReportsPanel");
+  });
 });

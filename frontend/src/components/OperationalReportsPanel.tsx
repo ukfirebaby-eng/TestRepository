@@ -8,8 +8,7 @@ type ReportTab = "friction" | "bottlenecks" | "schedule" | "matrix";
 type Props = {
   documentId: string;
   graph: NormalizedGraph;
-  onSelectNode: (node: GraphNode) => void;
-  onSelectLink: (link: GraphLink) => void;
+  onFocusGraphItem: (item: GraphNode | GraphLink) => void;
   variant?: "rail" | "workspace";
 };
 
@@ -25,7 +24,7 @@ function snippet(text?: string, fallback = "No analysis available.", limit = 180
   return text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
 }
 
-export function OperationalReportsPanel({ documentId, graph, onSelectNode, onSelectLink, variant = "rail" }: Props) {
+export function OperationalReportsPanel({ documentId, graph, onFocusGraphItem, variant = "rail" }: Props) {
   const [activeTab, setActiveTab] = useState<ReportTab>("friction");
   const [reports, setReports] = useState<OperationalReports | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -52,17 +51,17 @@ export function OperationalReportsPanel({ documentId, graph, onSelectNode, onSel
 
   function selectReportLink(row: FrictionQueueItem | ScheduleCollapseItem | RiskMatrixItem) {
     const link = findReportGraphLink(graph, row);
-    if (link) onSelectLink(link);
+    if (link) onFocusGraphItem(link);
   }
 
   function selectBottleneck(row: BottleneckItem) {
     const node = findReportGraphNode(graph, row);
-    if (node) onSelectNode(node);
+    if (node) onFocusGraphItem(node);
   }
 
   return (
     <div className={`operational-report-panel ${variant}`}>
-      <div className="report-tabs">
+      <div className="dm-tabs report-tabs">
         {tabs.map((tab) => (
           <button key={tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)}>
             {tab.label}
@@ -80,6 +79,7 @@ export function OperationalReportsPanel({ documentId, graph, onSelectNode, onSel
               <span>{item.type}</span>
               <strong>{item.source} {"->"} {item.target}</strong>
               <small>{snippet(item.diamond, "No analysis available.", snippetLimit)}</small>
+              <em>Focus evidence</em>
             </button>
           )) : <div className="report-empty">No friction items detected.</div>}
         </div>
@@ -92,6 +92,7 @@ export function OperationalReportsPanel({ documentId, graph, onSelectNode, onSel
               <span>{item.label || "hub"}</span>
               <strong>{item.name}</strong>
               <small>{Number(item.dependency_count || 0).toLocaleString()} inbound dependencies</small>
+              <em>Focus evidence</em>
             </button>
           )) : <div className="report-empty">No bottlenecks detected.</div>}
         </div>
@@ -104,6 +105,7 @@ export function OperationalReportsPanel({ documentId, graph, onSelectNode, onSel
               <span>{Number(item.days_at_risk || 0).toLocaleString()} days at risk</span>
               <strong>{item.predecessor_name} {"->"} {item.successor_name}</strong>
               <small>{item.pred_end_date} {"->"} {item.succ_start_date}</small>
+              <em>Focus evidence</em>
             </button>
           )) : <div className="report-empty">No schedule collapse detected.</div>}
         </div>

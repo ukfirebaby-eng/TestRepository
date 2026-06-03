@@ -9,6 +9,7 @@ import { getFocusTarget, getLinkFocusTarget, seededPosition, type FocusTarget } 
 import { advanceFocusAnimation, type FocusAnimationState } from "../graph/cameraFocus";
 import { getVisibleLabelNodes, type LabelMode } from "../graph/labelMode";
 import { buildFocusVisibility, type FocusVisibilityState } from "../graph/focusVisibility";
+import { summarizeRiskConcentration } from "../graph/riskConcentration";
 
 type Props = {
   nodes: GraphNode[];
@@ -72,17 +73,17 @@ function Atmosphere({ paused }: { paused: boolean }) {
       <ambientLight intensity={0.42} />
       <pointLight position={[4, 6, 7]} intensity={2.8} color="#6fd3ff" />
       <pointLight position={[-5, -2, -4]} intensity={1.9} color="#ffb547" />
-      <gridHelper ref={grid} args={[28, 28, "#273241", "#151c25"]} position={[0, -4.2, 0]} />
+      <gridHelper ref={grid} args={[28, 28, "#1d2732", "#111820"]} position={[0, -4.2, 0]} />
     </>
   );
 }
 
 function linkOpacity(link: GraphLink, lens: RiskLens, focusState: FocusVisibilityState): number {
   const inLens = linkMatchesLens(link, lens);
-  if (focusState === "selected") return 0.96;
-  if (focusState === "context") return inLens ? 0.58 : 0.34;
+  if (focusState === "selected") return 0.98;
+  if (focusState === "context") return inLens ? 0.64 : 0.38;
   if (focusState === "dimmed") return inLens ? 0.12 : 0.035;
-  return inLens ? (link.riskKind === "standard" ? 0.22 : 0.74) : 0.06;
+  return inLens ? (link.riskKind === "standard" ? 0.14 : 0.74) : 0.06;
 }
 
 function nodeOpacity(node: GraphNode, lens: RiskLens, focusState: FocusVisibilityState): number {
@@ -121,8 +122,10 @@ function LinkLine({ link, source, target, lens, focusState, onSelect }: { link: 
 function NodeOrb({ node, lens, focusState, paused, onSelect }: { node: PositionedNode; lens: RiskLens; focusState: FocusVisibilityState; paused: boolean; onSelect: () => void }) {
   const mesh = useRef<THREE.Mesh>(null);
   const opacity = nodeOpacity(node, lens, focusState);
-  const color = focusState === "selected" ? "#ffffff" : focusState === "context" ? "#f5c95f" : riskColor(node.riskKind);
-  const scale = focusState === "selected" ? 1.38 : focusState === "context" ? 1.08 : node.riskKind === "high" ? 1.22 : node.riskKind === "fragility" ? 1.12 : 0.9;
+  const nodeColor = riskColor(node.riskKind);
+  const displayColor = focusState === "context" ? "#f5c95f" : nodeColor;
+  const selectionRingColor = "#d8f3ff";
+  const scale = focusState === "selected" ? 1.28 : focusState === "context" ? 1.08 : node.riskKind === "high" ? 1.22 : node.riskKind === "fragility" ? 1.12 : 0.9;
   useFrame(({ clock }) => {
     if (mesh.current && !paused) {
       mesh.current.position.y = node.position.y + Math.sin(clock.elapsedTime * 1.4 + node.position.x) * 0.045;
@@ -131,14 +134,20 @@ function NodeOrb({ node, lens, focusState, paused, onSelect }: { node: Positione
   return (
     <group position={node.position}>
       {(node.riskKind === "high" || node.riskKind === "fragility") && (
-        <mesh scale={scale * 1.8}>
+        <mesh scale={scale * (focusState === "selected" ? 1.45 : 1.8)}>
           <sphereGeometry args={[0.32, 32, 32]} />
-          <meshBasicMaterial color={color} transparent opacity={focusState === "dimmed" ? 0.035 : 0.14} />
+          <meshBasicMaterial color={nodeColor} transparent opacity={focusState === "dimmed" ? 0.035 : focusState === "selected" ? 0.08 : 0.14} />
+        </mesh>
+      )}
+      {focusState === "selected" && (
+        <mesh scale={scale * 1.46}>
+          <sphereGeometry args={[0.31, 32, 32]} />
+          <meshBasicMaterial color={selectionRingColor} transparent opacity={0.62} wireframe />
         </mesh>
       )}
       <mesh ref={mesh} scale={scale} onClick={(event) => { event.stopPropagation(); onSelect(); }}>
         <sphereGeometry args={[0.22, 32, 32]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={focusState === "dimmed" ? 0.04 : 0.48} roughness={0.32} metalness={0.18} transparent opacity={opacity} />
+        <meshStandardMaterial color={displayColor} emissive={displayColor} emissiveIntensity={focusState === "dimmed" ? 0.04 : focusState === "selected" ? 0.62 : 0.48} roughness={0.32} metalness={0.18} transparent opacity={opacity} />
       </mesh>
       <mesh scale={scale * 1.8} onClick={(event) => { event.stopPropagation(); onSelect(); }}>
         <sphereGeometry args={[0.24, 20, 20]} />
@@ -228,13 +237,15 @@ export function SpatialCanvas3D(props: Props) {
   const selectedLinkId = props.selection.type === "link" ? props.selection.id : null;
   const selectedNode = selectedNodeId ? props.nodes.find((node) => node.id === selectedNodeId) : null;
   const selectedLink = selectedLinkId ? props.links.find((link) => link.id === selectedLinkId) : null;
+  const riskSummary = useMemo(() => summarizeRiskConcentration(props.nodes, props.links), [props.nodes, props.links]);
+  const effectiveLabelMode = props.selection.type === "none" ? labelMode : labelMode === "top-risks" ? "selected-neighbors" : labelMode;
   const commandNonce = useRef(0);
   useEffect(() => {
     setCameraAction(null);
   }, [props.selection]);
   const topLabels = useMemo(() => (
-    getVisibleLabelNodes(props.nodes, props.links, props.selection, props.lens, labelMode)
-  ), [props.nodes, props.links, props.selection, props.lens, labelMode]);
+    getVisibleLabelNodes(props.nodes, props.links, props.selection, props.lens, effectiveLabelMode)
+  ), [props.nodes, props.links, props.selection, props.lens, effectiveLabelMode]);
 
   function runCameraAction(type: CameraAction["type"]) {
     commandNonce.current += 1;
@@ -275,7 +286,12 @@ export function SpatialCanvas3D(props: Props) {
           </button>
         ))}
       </div>
-      <div className="scene-caption">3D command view · drag to orbit · scroll to zoom</div>
+      <div className="risk-concentration-hud">
+        <span>Risk concentration</span>
+        <strong>{riskSummary.primaryNode?.name || "No dominant node"}</strong>
+        <p>{riskSummary.caption}</p>
+      </div>
+      <div className="scene-caption">3D command view - drag to orbit - scroll to zoom</div>
     </section>
   );
 }

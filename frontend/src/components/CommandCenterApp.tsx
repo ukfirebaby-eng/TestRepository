@@ -1,17 +1,21 @@
 import { lazy, Suspense, useEffect, useMemo, useReducer, useState } from "react";
-import type { CanvasPayload, ConfigUpdate, DocumentSummary, GraphLink, GraphNode, NormalizedGraph, RawFragility } from "../api/types";
+import type { CanvasPayload, ConfigUpdate, DocumentSummary, GraphLink, GraphNode, JobAccuracyTelemetry, RawFragility } from "../api/types";
 import { clearVault, deleteDocument, getJobStatus, listDocuments, loadCanvas, loadConfig, saveConfig, uploadDocument } from "../api/client";
 import { normalizeCanvasPayload } from "../graph/normalize";
 import { type RiskLens } from "../graph/lenses";
 import { isAttentionItemSelected, selectionReducer, type GraphSelection } from "../graph/selection";
 import { buildLinkDetail, buildNodeDetail, searchNodes } from "../graph/details";
 import { buildReportActions } from "../reports/navigation";
+import { modeChromeForView, type ViewMode } from "../ui/modeChrome";
+import { AccuracyWorkspace } from "./AccuracyWorkspace";
+import { GraphFocusBanner } from "./GraphFocusBanner";
+import { ModeToolbar } from "./ModeToolbar";
 import { ReportWorkspace } from "./ReportWorkspace";
+import { SelectedEvidencePanel } from "./SelectedEvidencePanel";
 
 const SpatialCanvas3D = lazy(() => import("./SpatialCanvas3D").then((module) => ({ default: module.SpatialCanvas3D })));
 const AnalystMap2D = lazy(() => import("./AnalystMap2D").then((module) => ({ default: module.AnalystMap2D })));
 
-type ViewMode = "spatial" | "analyst" | "reports";
 type LoadState = "idle" | "loading" | "ready" | "error";
 type UploadStage = "Uploading" | "Queued" | "Processing" | "Loading canvas" | "Complete" | "Failed" | "Timed out";
 type UploadProgress = {
@@ -20,6 +24,7 @@ type UploadProgress = {
   status: string;
   startedAt: number;
   log: string[];
+  accuracy?: JobAccuracyTelemetry;
 };
 type ConfigForm = ConfigUpdate;
 
@@ -37,12 +42,6 @@ function isGraphLink(item: GraphLink | RawFragility): item is GraphLink {
 
 function metricLabel(value: number) {
   return value.toLocaleString();
-}
-
-function selectedTitle(selection: GraphSelection, graph: NormalizedGraph | null) {
-  if (!graph || selection.type === "none") return "Select a node or risk path";
-  if (selection.type === "node") return graph.nodes.find((node) => node.id === selection.id)?.name || "Selected node";
-  return graph.links.find((link) => link.id === selection.id)?.relationship || "Selected link";
 }
 
 function deleteErrorMessage(err: unknown): string {
@@ -63,6 +62,7 @@ const emptyConfigForm: ConfigForm = {
   FAST_MODEL: "",
   SMART_MODEL: "",
   VAULT_PATH: "",
+  DIAMOND_MINER_CLAIM_LAYER: "0",
 };
 
 export function CommandCenterApp() {
@@ -84,12 +84,14 @@ export function CommandCenterApp() {
   const [configBusy, setConfigBusy] = useState(false);
   const [configStatus, setConfigStatus] = useState("");
   const [configError, setConfigError] = useState("");
+  const [focusedFromReport, setFocusedFromReport] = useState<{ label: string } | null>(null);
   const [selection, dispatchSelection] = useReducer(selectionReducer, { type: "none" } as GraphSelection);
 
   const graph = useMemo(() => (payload ? normalizeCanvasPayload(payload) : null), [payload]);
   const nodeSearchResults = useMemo(() => (graph ? searchNodes(graph, nodeSearch) : []), [graph, nodeSearch]);
   const reportActions = useMemo(() => (activeDocument ? buildReportActions(activeDocument.id) : []), [activeDocument]);
   const exportReportActions = useMemo(() => reportActions.filter((action) => action.kind === "export"), [reportActions]);
+  const chrome = modeChromeForView(viewMode);
 
   useEffect(() => {
     listDocuments()
@@ -102,6 +104,7 @@ export function CommandCenterApp() {
     setLoadState("loading");
     setError("");
     dispatchSelection({ type: "clear" });
+    setFocusedFromReport(null);
     try {
       const data = await loadCanvas(document.id);
       setPayload(data);
@@ -134,6 +137,7 @@ export function CommandCenterApp() {
           stage: status.status === "pending" ? "Queued" : status.status === "processing" ? "Processing" : status.status === "completed" ? "Loading canvas" : "Failed",
           status: status.status,
           log: status.log ?? [],
+          accuracy: status.accuracy,
         });
         if (status.status === "completed") {
           const refreshed = await listDocuments();
@@ -141,7 +145,7 @@ export function CommandCenterApp() {
           const doc = refreshed.find((item) => item.id === upload.document_id) || { id: upload.document_id, name: file.name };
           setUploadProgress((current) => current && { ...current, stage: "Loading canvas", status: "Loading canvas..." });
           await openDocument(doc);
-          setUploadProgress({ fileName: file.name, stage: "Complete", status: "Analysis complete.", startedAt: started, log: status.log ?? [] });
+          setUploadProgress({ fileName: file.name, stage: "Complete", status: "Analysis complete.", startedAt: started, log: status.log ?? [], accuracy: status.accuracy });
           window.setTimeout(() => setUploadProgress(null), 1800);
           return;
         }
@@ -165,6 +169,7 @@ export function CommandCenterApp() {
     setViewMode("spatial");
     setNodeSearch("");
     dispatchSelection({ type: "clear" });
+    setFocusedFromReport(null);
   }
 
   async function refreshDocuments() {
@@ -227,6 +232,7 @@ export function CommandCenterApp() {
         FAST_MODEL: config.FAST_MODEL ?? "",
         SMART_MODEL: config.SMART_MODEL ?? "",
         VAULT_PATH: config.VAULT_PATH ?? "",
+        DIAMOND_MINER_CLAIM_LAYER: config.DIAMOND_MINER_CLAIM_LAYER === "1" ? "1" : "0",
       });
     } catch {
       setConfigError("Could not load configuration.");
@@ -272,6 +278,22 @@ export function CommandCenterApp() {
 
   function clearSelection() {
     dispatchSelection({ type: "clear" });
+    setFocusedFromReport(null);
+  }
+
+  function focusGraphItemFromReport(item: GraphNode | GraphLink) {
+    if ("relationship" in item) {
+      selectLink(item);
+      setFocusedFromReport({ label: item.relationship });
+    } else {
+      selectNode(item);
+      setFocusedFromReport({ label: item.name });
+    }
+    setViewMode("analyst");
+  }
+
+  function backToReports() {
+    setViewMode("reports");
   }
 
   function focusAttentionItem(item: GraphLink | RawFragility) {
@@ -284,13 +306,13 @@ export function CommandCenterApp() {
     else dispatchSelection({ type: "select-node", id: item.hub_node_id });
   }
 
-  const selectedLink = graph && selection.type === "link" ? graph.links.find((link) => link.id === selection.id) : null;
-  const selectedNode = graph && selection.type === "node" ? graph.nodes.find((node) => node.id === selection.id) : null;
+  const selectedLink = graph && selection.type === "link" ? graph.links.find((link) => link.id === selection.id) ?? null : null;
+  const selectedNode = graph && selection.type === "node" ? graph.nodes.find((node) => node.id === selection.id) ?? null : null;
   const nodeDetail = graph && selectedNode ? buildNodeDetail(graph, selectedNode.id) : null;
   const linkDetail = graph && selectedLink ? buildLinkDetail(graph, selectedLink.id) : null;
 
   return (
-    <main className="command-center">
+    <main className={`command-center ${chrome.rootClass}`}>
       <aside className="document-rail">
         <div className="brand-lockup">
           <span>Diamond Miner</span>
@@ -313,6 +335,21 @@ export function CommandCenterApp() {
             </div>
             <strong>{uploadProgress.fileName}</strong>
             <p>{uploadProgress.status}</p>
+            {uploadProgress.accuracy && (
+              <div className="ingestion-accuracy-grid" aria-label="Claim extraction accuracy telemetry">
+                <span><small>Evidence spans</small><strong>{uploadProgress.accuracy.evidence_spans}</strong></span>
+                <span><small>Claims</small><strong>{uploadProgress.accuracy.claims}</strong></span>
+                <span><small>Validated</small><strong>{uploadProgress.accuracy.validated}</strong></span>
+                <span><small>Needs review</small><strong>{uploadProgress.accuracy.needs_review}</strong></span>
+                <span><small>Failed</small><strong>{uploadProgress.accuracy.failed}</strong></span>
+                {uploadProgress.accuracy.batches_attempted !== undefined && (
+                  <span><small>Batches</small><strong>{uploadProgress.accuracy.batches_succeeded ?? 0}/{uploadProgress.accuracy.batches_attempted}</strong></span>
+                )}
+                {uploadProgress.accuracy.claims_after_dedupe !== undefined && (
+                  <span><small>Deduped claims</small><strong>{uploadProgress.accuracy.claims_after_dedupe}</strong></span>
+                )}
+              </div>
+            )}
             {uploadProgress.log.length > 0 && (
               <ol>
                 {uploadProgress.log.slice(-5).map((line, index) => <li key={`${line}-${index}`}>{line}</li>)}
@@ -362,24 +399,28 @@ export function CommandCenterApp() {
       <section className="workspace">
         <header className="top-command">
           <div>
-            <p className="eyebrow">Cinematic spatial risk model</p>
+            <p className="eyebrow">{chrome.headline}</p>
             <h1>{activeDocument?.name || "Load a document to open command view"}</h1>
-            <span className="status-line">{loadState === "ready" && graph ? `${graph.metrics.nodes} nodes analysed · ${graph.metrics.highRiskIssues} high-risk signals` : "Beta route · backend APIs unchanged"}</span>
+            <span className="status-line">{loadState === "ready" && graph ? `${graph.metrics.nodes} nodes analysed - ${graph.metrics.highRiskIssues} high-risk signals` : "Beta route - backend APIs unchanged"}</span>
           </div>
-          <nav className="command-actions">
-            <button onClick={() => setViewMode("spatial")} className={viewMode === "spatial" ? "active" : ""}>3D Canvas</button>
-            <button onClick={() => setViewMode("analyst")} className={viewMode === "analyst" ? "active" : ""}>Analyst Map</button>
-            <button onClick={() => setViewMode("reports")} className={viewMode === "reports" ? "active" : ""}>Reports</button>
-            <button type="button" className="config-action" onClick={() => void openConfiguration()}>Configuration</button>
-            {exportReportActions.map((action) => (
-              <a key={action.href} href={action.href} target="_blank" rel="noreferrer" className="command-export">
-                {action.label}
-              </a>
-            ))}
-          </nav>
+          <ModeToolbar
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            exportReportActions={exportReportActions}
+            onOpenConfiguration={() => void openConfiguration()}
+            focusedFromReport={Boolean(focusedFromReport)}
+            onBackToReports={backToReports}
+          />
         </header>
 
-        {graph && (
+        <GraphFocusBanner
+          visible={Boolean(focusedFromReport)}
+          label={focusedFromReport?.label || ""}
+          onBackToReports={backToReports}
+          onClearFocus={clearSelection}
+        />
+
+        {chrome.showMetrics && graph && (
           <section className="metrics-strip">
             <div><strong>{metricLabel(graph.metrics.nodes)}</strong><span>Nodes</span></div>
             <div><strong>{metricLabel(graph.metrics.edges)}</strong><span>Edges</span></div>
@@ -389,7 +430,7 @@ export function CommandCenterApp() {
           </section>
         )}
 
-        {viewMode !== "reports" && (
+        {chrome.showLensBar && (
           <section className="lens-bar">
             {lenses.map((item) => (
               <button key={item.id} className={lens === item.id ? "active" : ""} onClick={() => setLens(item.id)}>{item.label}</button>
@@ -397,7 +438,7 @@ export function CommandCenterApp() {
           </section>
         )}
 
-        {graph && viewMode !== "reports" && (
+        {chrome.showSearch && graph && (
           <section className="node-search-panel">
             <input
               id="node-search-input"
@@ -411,7 +452,7 @@ export function CommandCenterApp() {
                 {nodeSearchResults.map((node) => (
                   <button key={node.id} onClick={() => selectNode(node)}>
                     <span>{node.name}</span>
-                    <small>{node.label || "node"} · {node.riskKind}</small>
+                    <small>{node.label || "node"} - {node.riskKind}</small>
                   </button>
                 ))}
               </div>
@@ -433,97 +474,31 @@ export function CommandCenterApp() {
               <AnalystMap2D nodes={graph.nodes} links={graph.links} lens={lens} selection={selection} onSelectNode={selectNode} onSelectLink={selectLink} onClearSelection={clearSelection} />
             </Suspense>
           )}
-          {loadState === "ready" && graph && activeDocument && viewMode === "reports" && (
-            <ReportWorkspace
-              documentId={activeDocument.id}
-              documentName={activeDocument.name}
-              graph={graph}
-              onSelectNode={selectNode}
-              onSelectLink={selectLink}
-            />
-          )}
-        </section>
+           {loadState === "ready" && graph && activeDocument && viewMode === "reports" && (
+             <ReportWorkspace
+               documentId={activeDocument.id}
+               documentName={activeDocument.name}
+               graph={graph}
+               onFocusGraphItem={focusGraphItemFromReport}
+             />
+           )}
+           {loadState === "ready" && activeDocument && viewMode === "accuracy" && (
+             <AccuracyWorkspace documentId={activeDocument.id} documentName={activeDocument.name} />
+           )}
+         </section>
       </section>
 
       <aside className="insight-panel">
-        <div className="panel-section">
-          <p className="eyebrow">Selected Evidence</p>
-          <h2>{selectedTitle(selection, graph)}</h2>
-          {nodeDetail && (
-            <div className="detail-stack">
-              <div className="detail-pills">
-                <span>{nodeDetail.label}</span>
-                <span>{nodeDetail.riskKind}</span>
-                <span>Risk Score {nodeDetail.riskScore}</span>
-              </div>
-              <div>
-                <h3>Connected Nodes</h3>
-                {nodeDetail.connections.length ? (
-                  <div className="connection-list">
-                    {nodeDetail.connections.slice(0, 8).map((connection) => (
-                      <button key={`${connection.direction}-${connection.nodeId}-${connection.relationship}`} onClick={() => {
-                        const match = graph?.nodes.find((node) => node.id === connection.nodeId);
-                        if (match) selectNode(match);
-                      }}>
-                        <span>{connection.direction === "outgoing" ? "->" : "<-"} {connection.relationship}</span>
-                        {connection.nodeName}
-                      </button>
-                    ))}
-                  </div>
-                ) : <p>No direct standard connections found.</p>}
-              </div>
-              {nodeDetail.fragility && (
-                <div>
-                  <h3>Cascade Path</h3>
-                  <p>{nodeDetail.fragility.insight}</p>
-                  <ol className="cascade-list">
-                    {(nodeDetail.fragility.cascade_nodes || []).map((name) => <li key={name}>{name}</li>)}
-                  </ol>
-                </div>
-              )}
-            </div>
-          )}
-          {linkDetail && (
-            <div className="detail-stack">
-              <div className="detail-pills">
-                <span>{linkDetail.riskKind}</span>
-                <span>Risk Score {linkDetail.riskScore || "n/a"}</span>
-                <span>Severity {linkDetail.severity || "n/a"}</span>
-                <span>Probability {linkDetail.probability || "n/a"}</span>
-              </div>
-              <div className="plain-english-panel">
-                <span>Plain English</span>
-                <h3>{linkDetail.plainEnglish.heading}</h3>
-                <p>{linkDetail.plainEnglish.meaning}</p>
-                <p>{linkDetail.plainEnglish.impact}</p>
-                <p>{linkDetail.plainEnglish.scoreMeaning}</p>
-                {linkDetail.plainEnglish.actions.length > 0 && (
-                  <ol>
-                    {linkDetail.plainEnglish.actions.map((action) => <li key={action}>{action}</li>)}
-                  </ol>
-                )}
-              </div>
-              <div className="link-path">
-                <button onClick={() => {
-                  const match = graph?.nodes.find((node) => node.name === linkDetail.sourceName);
-                  if (match) selectNode(match);
-                }}>{linkDetail.sourceName}</button>
-                <span>-&gt;</span>
-                <button onClick={() => {
-                  const match = graph?.nodes.find((node) => node.name === linkDetail.targetName);
-                  if (match) selectNode(match);
-                }}>{linkDetail.targetName}</button>
-              </div>
-              <div>
-                <h3>Analysis</h3>
-                <p>{linkDetail.analysis}</p>
-              </div>
-            </div>
-          )}
-          {selectedNode && !nodeDetail && <p>{selectedNode.label || "Concept"} · {selectedNode.riskKind}</p>}
-          {selectedLink && !linkDetail && <p>{selectedLink.diamond || selectedLink.relationship}</p>}
-          {!selectedNode && !selectedLink && <p>Click a node or risk path in either graph view to inspect it here.</p>}
-        </div>
+        <SelectedEvidencePanel
+          selectedNode={selectedNode}
+          selectedLink={selectedLink}
+          nodeDetail={nodeDetail}
+          linkDetail={linkDetail}
+          graph={graph}
+          onSelectNode={selectNode}
+          onClearSelection={clearSelection}
+          placement={chrome.evidencePlacement}
+        />
         <div className="panel-section">
           <p className="eyebrow">Critical Attention</p>
           <div className="risk-list">
@@ -618,6 +593,27 @@ export function CommandCenterApp() {
             placeholder="./vaults"
           />
         </label>
+
+        <div className="config-section">
+          <span className="config-label">DIAMOND_MINER_CLAIM_LAYER</span>
+          <div className="provider-toggle">
+            <button
+              type="button"
+              className={configForm.DIAMOND_MINER_CLAIM_LAYER === "1" ? "active" : ""}
+              onClick={() => updateConfigField("DIAMOND_MINER_CLAIM_LAYER", "1")}
+            >
+              Claim layer on
+            </button>
+            <button
+              type="button"
+              className={configForm.DIAMOND_MINER_CLAIM_LAYER !== "1" ? "active" : ""}
+              onClick={() => updateConfigField("DIAMOND_MINER_CLAIM_LAYER", "0")}
+            >
+              Off
+            </button>
+          </div>
+          <p className="config-hint">Stores evidence spans and validated claims during ingestion.</p>
+        </div>
 
         {configError && <p className="config-message error">{configError}</p>}
         {configStatus && <p className="config-message">{configStatus}</p>}

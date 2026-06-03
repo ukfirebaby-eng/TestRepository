@@ -19,6 +19,7 @@ function toRiskLink(issue: RawIssue, index: number, riskKind: "structural" | "ti
     diamond: issue.diamond || "",
     severity: issue.severity,
     probability: issue.probability,
+    finding: issue.finding,
     riskKind,
     riskScore: issueScore(issue),
   };

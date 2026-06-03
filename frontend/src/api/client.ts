@@ -1,4 +1,4 @@
-import type { AppConfig, BottleneckItem, CanvasPayload, ClearVaultResult, ConfigUpdate, ConfigUpdateResult, DeleteDocumentResult, DocumentSummary, FrictionQueueItem, JobStatus, OperationalReports, RiskMatrixItem, ScheduleCollapseItem, UploadResult } from "./types";
+import type { AccuracyPayload, AppConfig, BottleneckItem, CanvasPayload, ClearVaultResult, ConfigUpdate, ConfigUpdateResult, DeleteDocumentResult, DocumentSummary, FrictionQueueItem, JobStatus, OperationalReports, RiskMatrixItem, ScheduleCollapseItem, UploadResult } from "./types";
 import { finalPayloadForKind, generatedReportConfig, parseSseChunk, type GeneratedReportEvent, type GeneratedReportKind } from "../reports/generated";
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -63,6 +63,10 @@ export async function loadOperationalReports(documentId: string): Promise<Operat
   };
 }
 
+export async function loadAccuracyPayload(documentId: string): Promise<AccuracyPayload> {
+  return readJson<AccuracyPayload>(await fetch(`/api/v1/accuracy/${documentId}`));
+}
+
 export async function getGeneratedReport(kind: GeneratedReportKind, documentId: string): Promise<{ cached: boolean; report?: unknown; result?: unknown }> {
   return readJson<{ cached: boolean; report?: unknown; result?: unknown }>(await fetch(generatedReportConfig[kind].path(documentId)));
 }
@@ -90,11 +94,15 @@ export async function streamGeneratedReport(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let finalPayload: unknown | null = null;
+  let streamError: string | null = null;
   let buffer = "";
 
   function handleEvents(events: GeneratedReportEvent[]) {
     events.forEach((event) => {
       onEvent(event);
+      if (event.stage === "error" || event.error) {
+        streamError = event.message || "Report generation failed.";
+      }
       if (event.stage === "complete") {
         const payload = finalPayloadForKind(kind, event);
         if (payload !== undefined) finalPayload = payload;
@@ -113,6 +121,10 @@ export async function streamGeneratedReport(
 
   buffer += decoder.decode();
   handleEvents(parseSseChunk(buffer));
+
+  if (streamError) {
+    throw new Error(streamError);
+  }
 
   return finalPayload;
 }

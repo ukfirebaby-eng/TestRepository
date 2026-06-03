@@ -6,11 +6,10 @@ type Props = {
   documentId: string;
   documentName: string;
   graph: NormalizedGraph;
-  onSelectNode: (node: GraphNode) => void;
-  onSelectLink: (link: GraphLink) => void;
+  onFocusGraphItem: (item: GraphNode | GraphLink) => void;
 };
 
-export function ReportWorkspace({ documentId, documentName, graph, onSelectNode, onSelectLink }: Props) {
+export function ReportWorkspace({ documentId, documentName, graph, onFocusGraphItem }: Props) {
   return (
     <section className="report-workspace" aria-label="Reports workspace">
       <header className="report-workspace-header">
@@ -21,17 +20,16 @@ export function ReportWorkspace({ documentId, documentName, graph, onSelectNode,
         <span>{graph.metrics.nodes.toLocaleString()} nodes analysed</span>
       </header>
       <div className="report-workspace-grid">
-        <section className="report-workspace-panel operational">
+        <section className="dm-panel report-workspace-panel operational">
           <p className="eyebrow">Operational Reports</p>
           <OperationalReportsPanel
             documentId={documentId}
             graph={graph}
-            onSelectNode={onSelectNode}
-            onSelectLink={onSelectLink}
+            onFocusGraphItem={onFocusGraphItem}
             variant="workspace"
           />
         </section>
-        <section className="report-workspace-panel generated">
+        <section className="dm-panel report-workspace-panel generated">
           <p className="eyebrow">Generated Intelligence</p>
           <GeneratedReportsPanel documentId={documentId} documentName={documentName} variant="workspace" />
         </section>

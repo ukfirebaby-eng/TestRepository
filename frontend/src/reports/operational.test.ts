@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { NormalizedGraph } from "../api/types";
 import { findReportGraphLink, findReportGraphNode, riskMatrixBuckets } from "./operational";
 
@@ -27,5 +29,12 @@ describe("operational report helpers", () => {
     ]);
 
     expect(buckets.get("5:4")).toHaveLength(2);
+  });
+
+  it("surfaces report rows as focusable graph evidence", () => {
+    const source = readFileSync(resolve(__dirname, "../components/OperationalReportsPanel.tsx"), "utf-8");
+
+    expect(source).toContain("onFocusGraphItem");
+    expect(source).toContain("Focus evidence");
   });
 });

@@ -1,4 +1,4 @@
-import type { GraphLink, GraphNode, NormalizedGraph, RawFragility, RiskKind } from "../api/types";
+import type { GraphLink, GraphNode, NormalizedGraph, RawFragility, RawRiskFinding, RiskKind } from "../api/types";
 
 export type NodeConnection = {
   direction: "incoming" | "outgoing";
@@ -25,6 +25,8 @@ export type LinkDetail = {
   probability?: number | string;
   sourceName: string;
   targetName: string;
+  isSelfReferential: boolean;
+  finding?: RawRiskFinding;
   relationship: string;
   analysis: string;
   plainEnglish: PlainEnglishRiskExplanation;
@@ -67,7 +69,16 @@ function riskHeading(link: GraphLink): string {
   return "Selected risk path";
 }
 
-function riskMeaning(link: GraphLink, sourceName: string, targetName: string): string {
+function riskMeaning(link: GraphLink, sourceName: string, targetName: string, isSelfReferential: boolean): string {
+  if (isSelfReferential) {
+    if (link.riskKind === "timeline") {
+      return `This means the app found a programme-level timing conflict inside ${sourceName}. The graph could not isolate two distinct milestones, so read this as an internal schedule or sequencing problem, not as ${sourceName} depending on itself.`;
+    }
+    if (link.riskKind === "structural") {
+      return `This means the app found a programme-level structural conflict inside ${sourceName}. The graph could not isolate two distinct endpoints, so read this as an internal prerequisite, approval, capability, or blocker problem, not as ${sourceName} depending on itself.`;
+    }
+    return `This means the app found a programme-level risk attached to ${sourceName}. The graph could not isolate two distinct endpoints for this evidence item.`;
+  }
   if (link.riskKind === "timeline") {
     return `This means the app found a timing conflict around the ${link.relationship} relationship from ${sourceName} to ${targetName}. The plan may be asking ${targetName} to start before ${sourceName} is realistically complete.`;
   }
@@ -77,11 +88,17 @@ function riskMeaning(link: GraphLink, sourceName: string, targetName: string): s
   return `This means the app found a risk path from ${sourceName} to ${targetName} through the ${link.relationship} relationship.`;
 }
 
-function riskImpact(link: GraphLink, targetName: string): string {
+function riskImpact(link: GraphLink, targetName: string, isSelfReferential: boolean): string {
   const severity = numeric(link.severity);
   const probability = numeric(link.probability);
   const highImpact = severity !== null && severity >= 4;
   const likely = probability !== null && probability >= 4;
+  if (isSelfReferential && highImpact && likely) {
+    return `If left unresolved, this is likely to happen and would have a serious impact. The programme could be delayed, blocked, or forced to proceed with unresolved delivery, compliance, or operational risk.`;
+  }
+  if (isSelfReferential) {
+    return `This should be reviewed as a programme-level dependency issue so the underlying blocker can be assigned to a specific owner, milestone, or decision.`;
+  }
   if (highImpact && likely) {
     return `If left unresolved, this is likely to happen and would have a serious impact. ${targetName} could be delayed, blocked, or forced to proceed with unresolved delivery, compliance, or operational risk.`;
   }
@@ -93,10 +110,12 @@ function riskImpact(link: GraphLink, targetName: string): string {
 function scoreMeaning(link: GraphLink): string {
   const severity = link.severity ?? "n/a";
   const probability = link.probability ?? "n/a";
-  return `Severity ${severity} measures impact, Probability ${probability} measures likelihood, and Risk Score ${link.riskScore} combines them for prioritisation.`;
+  const confidence = numeric(link.finding?.confidence);
+  const confidenceText = confidence !== null ? ` Confidence ${Math.round(confidence * 100)}%.` : "";
+  return `Severity ${severity} measures impact, Probability ${probability} measures likelihood, and Risk Score ${link.riskScore} combines them for prioritisation.${confidenceText}`;
 }
 
-function recommendedActions(link: GraphLink, targetName: string): string[] {
+function recommendedActions(link: GraphLink, targetName: string, isSelfReferential: boolean): string[] {
   const analysis = (link.diamond || "").replace(/\s+/g, " ").trim();
   const actionVerb = "(?:escalate|move|reschedule|negotiate|accelerate|adjust|obtain|confirm|delay|defer|resolve)";
   const actions = analysis
@@ -108,18 +127,33 @@ function recommendedActions(link: GraphLink, targetName: string): string[] {
 
   if (!actions.length && analysis) actions.push(sentenceCase(analysis));
   if (link.riskKind !== "standard") {
-    actions.push(`Do not proceed with ${targetName} until the blocker described above is resolved or explicitly accepted.`);
+    actions.push(isSelfReferential
+      ? `Do not treat ${targetName} as ready until the internal blocker described above is resolved or explicitly accepted.`
+      : `Do not proceed with ${targetName} until the blocker described above is resolved or explicitly accepted.`);
   }
   return Array.from(new Set(actions)).slice(0, 4);
 }
 
-function buildPlainEnglishRiskExplanation(link: GraphLink, sourceName: string, targetName: string): PlainEnglishRiskExplanation {
+function buildPlainEnglishRiskExplanation(link: GraphLink, sourceName: string, targetName: string, isSelfReferential: boolean): PlainEnglishRiskExplanation {
+  if (link.finding) {
+    const actions = [
+      link.finding.recommended_action,
+      ...(link.finding.assumptions?.length ? [`Assumptions: ${link.finding.assumptions.join("; ")}.`] : []),
+    ].filter((action): action is string => Boolean(action && action.trim()));
+    return {
+      heading: link.finding.title || riskHeading(link),
+      meaning: link.finding.evidence_summary || riskMeaning(link, sourceName, targetName, isSelfReferential),
+      impact: link.finding.why_it_matters || riskImpact(link, targetName, isSelfReferential),
+      scoreMeaning: scoreMeaning(link),
+      actions: actions.length ? actions : recommendedActions(link, targetName, isSelfReferential),
+    };
+  }
   return {
     heading: riskHeading(link),
-    meaning: riskMeaning(link, sourceName, targetName),
-    impact: riskImpact(link, targetName),
+    meaning: riskMeaning(link, sourceName, targetName, isSelfReferential),
+    impact: riskImpact(link, targetName, isSelfReferential),
     scoreMeaning: scoreMeaning(link),
-    actions: recommendedActions(link, targetName),
+    actions: recommendedActions(link, targetName, isSelfReferential),
   };
 }
 
@@ -157,6 +191,7 @@ export function buildLinkDetail(graph: NormalizedGraph, linkId: string): LinkDet
   if (!link) return null;
   const sourceName = nodeName(graph, link.source);
   const targetName = nodeName(graph, link.target);
+  const isSelfReferential = link.source === link.target || sourceName === targetName;
   return {
     id: link.id,
     riskKind: link.riskKind,
@@ -165,9 +200,11 @@ export function buildLinkDetail(graph: NormalizedGraph, linkId: string): LinkDet
     probability: link.probability,
     sourceName,
     targetName,
+    isSelfReferential,
+    finding: link.finding,
     relationship: link.relationship,
     analysis: link.diamond || link.relationship,
-    plainEnglish: buildPlainEnglishRiskExplanation(link, sourceName, targetName),
+    plainEnglish: buildPlainEnglishRiskExplanation(link, sourceName, targetName, isSelfReferential),
   };
 }
 

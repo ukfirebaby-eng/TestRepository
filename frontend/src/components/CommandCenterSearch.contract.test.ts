@@ -4,14 +4,16 @@ import { describe, expect, it } from "vitest";
 
 describe("CommandCenterApp search/detail contract", () => {
   it("exposes node search and richer evidence sections", () => {
-    const source = readFileSync(resolve(__dirname, "CommandCenterApp.tsx"), "utf-8");
+    const appSource = readFileSync(resolve(__dirname, "CommandCenterApp.tsx"), "utf-8");
+    const evidenceSource = readFileSync(resolve(__dirname, "SelectedEvidencePanel.tsx"), "utf-8");
+    const evidenceModelSource = readFileSync(resolve(__dirname, "../ui/evidenceViewModel.ts"), "utf-8");
 
-    expect(source).toContain("node-search-input");
-    expect(source).toContain("searchNodes(");
-    expect(source).toContain("buildNodeDetail(");
-    expect(source).toContain("buildLinkDetail(");
-    expect(source).toContain("Connected Nodes");
-    expect(source).toContain("Risk Score");
-    expect(source).toContain("Cascade Path");
+    expect(appSource).toContain("node-search-input");
+    expect(appSource).toContain("searchNodes(");
+    expect(appSource).toContain("buildNodeDetail(");
+    expect(appSource).toContain("buildLinkDetail(");
+    expect(evidenceSource).toContain("Supporting graph evidence");
+    expect(evidenceModelSource).toContain("Risk score");
+    expect(evidenceSource).toContain("Cascade Path");
   });
 });

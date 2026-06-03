@@ -13,4 +13,10 @@ describe("generated report helpers", () => {
       { stage: "complete", report: { overall_assessment: "High Risk" } },
     ]);
   });
+
+  it("parses streamed report error events", () => {
+    expect(parseSseChunk('data: {"stage":"error","message":"Provider rejected max_tokens","error":"provider_error"}\n\n')).toEqual([
+      { stage: "error", message: "Provider rejected max_tokens", error: "provider_error" },
+    ]);
+  });
 });

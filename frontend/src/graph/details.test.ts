@@ -80,6 +80,69 @@ describe("graph detail helpers", () => {
     ]));
   });
 
+  it("explains self-referential risk links as programme-level conflicts", () => {
+    const selfLoopGraph = normalizeCanvasPayload({
+      nodes: [
+        { id: "orion_programme", name: "Orion Payments Modernisation Programme", label: "programme" },
+      ],
+      edges: [],
+      friction_lines: [
+        {
+          source: "orion_programme",
+          target: "orion_programme",
+          diamond: "Make replicated-and-approved transaction history a hard entry criterion for testing.",
+          severity: 4,
+          probability: 4,
+        },
+      ],
+    });
+    const link = selfLoopGraph.links.find((item) => item.riskKind === "structural");
+    const detail = buildLinkDetail(selfLoopGraph, link?.id || "");
+
+    expect(detail?.isSelfReferential).toBe(true);
+    expect(detail?.plainEnglish.meaning).toContain("programme-level structural conflict inside Orion Payments Modernisation Programme");
+    expect(detail?.plainEnglish.meaning).not.toContain("from Orion Payments Modernisation Programme to Orion Payments Modernisation Programme");
+    expect(detail?.plainEnglish.impact).toContain("The programme could be delayed");
+  });
+
+  it("prefers structured ingestion findings over inferred graph wording", () => {
+    const findingGraph = normalizeCanvasPayload({
+      nodes: [
+        { id: "orion_programme", name: "Orion Payments Modernisation Programme", label: "programme" },
+      ],
+      edges: [],
+      friction_lines: [
+        {
+          source: "orion_programme",
+          target: "orion_programme",
+          diamond: "Legacy mitigation text.",
+          severity: 4,
+          probability: 4,
+          finding: {
+            title: "Audit evidence starts before source data approval",
+            risk_type: "evidence readiness",
+            affected_entity: "Orion Payments Modernisation Programme",
+            blocked_work: "board sign-off",
+            blocking_condition: "approved transaction history",
+            evidence_summary: "The plan generates audit evidence before transaction history is approved.",
+            why_it_matters: "Board sign-off could be based on invalid evidence.",
+            recommended_action: "Move evidence production after transaction history approval.",
+            confidence: 0.91,
+            assumptions: ["Transaction history approval is mandatory."],
+          },
+        },
+      ],
+    });
+    const link = findingGraph.links.find((item) => item.riskKind === "structural");
+    const detail = buildLinkDetail(findingGraph, link?.id || "");
+
+    expect(detail?.plainEnglish.heading).toBe("Audit evidence starts before source data approval");
+    expect(detail?.plainEnglish.meaning).toBe("The plan generates audit evidence before transaction history is approved.");
+    expect(detail?.plainEnglish.impact).toBe("Board sign-off could be based on invalid evidence.");
+    expect(detail?.plainEnglish.actions).toContain("Move evidence production after transaction history approval.");
+    expect(detail?.plainEnglish.scoreMeaning).toContain("Confidence 91%");
+  });
+
   it("searches nodes by name, label, and id", () => {
     expect(searchNodes(graph, "auth").map((node) => node.id)).toEqual(["auth"]);
     expect(searchNodes(graph, "application").map((node) => node.id)).toEqual(["portal"]);

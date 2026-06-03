@@ -55,6 +55,19 @@ function daysText(value: unknown): string | null {
   return `${numeric.toLocaleString()} days`;
 }
 
+function firstPresent(...values: unknown[]): unknown {
+  return values.find((value) => value !== null && value !== undefined && !(typeof value === "string" && !value.trim()));
+}
+
+function positiveNumber(value: unknown): boolean {
+  if (typeof value === "number" && Number.isFinite(value)) return value > 0;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0;
+  }
+  return false;
+}
+
 function plural(count: number, singular: string, pluralLabel = `${singular}s`) {
   return `${count.toLocaleString()} ${count === 1 ? singular : pluralLabel}`;
 }
@@ -138,10 +151,11 @@ export function GeneratedReportsPanel({ documentId, documentName, variant = "rai
           message: finalPayload ? "Report ready." : "Generation completed without report content.",
         },
       }));
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "Generation failed.";
       setStates((current) => ({
         ...current,
-        [activeKind]: { ...current[activeKind], status: "error", message: "Generation failed." },
+        [activeKind]: { ...current[activeKind], status: "error", message },
       }));
     }
   }
@@ -310,21 +324,22 @@ function BlackSwanCard({ payload }: { payload: unknown }) {
 
 function MonteCarloCard({ payload }: { payload: unknown }) {
   const detail = asRecord(payload);
-  const atRiskNodes = asArray(detail.at_risk_nodes);
-  const p50 = daysText(detail.p50_delay_days || detail.p50);
-  const p80 = daysText(detail.p80_delay_days || detail.p80);
-  const p95 = daysText(detail.p95_delay_days || detail.p95 || detail.p90_delay_days || detail.p90);
-  const available = detail.available !== false;
+  const atRiskNodes = asArray(detail.at_risk_nodes).filter((node) => positiveNumber(node.mean_delay_days));
+  const p50 = daysText(firstPresent(detail.p50_delay_days, detail.p50));
+  const p80 = daysText(firstPresent(detail.p80_delay_days, detail.p80));
+  const p95 = daysText(firstPresent(detail.p95_delay_days, detail.p95, detail.p90_delay_days, detail.p90));
+  const available = detail.available !== false && Boolean(p50 || p80 || p95);
+  const forecastSummary = `P50 ${p50 || "n/a"} - P80 ${p80 || "n/a"} - P95 ${p95 || "n/a"}.`;
   return (
     <div className="generated-card">
       <span>Monte Carlo</span>
-      <strong>{available && p95 ? `P95 ${p95}` : "Forecast unavailable"}</strong>
+      <strong>{available ? `P95 ${p95 || "n/a"}` : "Forecast unavailable"}</strong>
       <p>
         {available
-          ? `P50 ${p50 || "n/a"} · P80 ${p80 || "n/a"} · P95 ${p95 || "n/a"}. ${plural(atRiskNodes.length, "node")} flagged as delay-sensitive.`
+          ? `${forecastSummary} ${atRiskNodes.length > 0 ? `${plural(atRiskNodes.length, "node")} flagged as delay-sensitive.` : "No delay-sensitive nodes identified."}`
           : text(detail.reason || detail.message, "Insufficient temporal data for Monte Carlo forecasting.")}
       </p>
-      {atRiskNodes.length > 0 && (
+      {available && atRiskNodes.length > 0 && (
         <div className="simulation-detail-list">
           {atRiskNodes.slice(0, 3).map((node, index) => (
             <div key={`${text(node.id || node.name, "risk-node")}-${index}`}>

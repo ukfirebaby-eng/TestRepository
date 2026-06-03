@@ -3,6 +3,7 @@ export type GeneratedReportKind = "executive" | "narrative" | "simulation";
 export type GeneratedReportEvent = {
   stage?: string;
   message?: string;
+  error?: string;
   report?: unknown;
   result?: unknown;
 };

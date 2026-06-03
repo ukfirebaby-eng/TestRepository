@@ -10,7 +10,7 @@ describe("OperationalReportsPanel contract", () => {
     expect(source).toContain("Bottlenecks");
     expect(source).toContain("Schedule Collapse");
     expect(source).toContain("Risk Matrix");
-    expect(source).toContain("onSelectLink");
-    expect(source).toContain("onSelectNode");
+    expect(source).toContain("onFocusGraphItem");
+    expect(source).toContain("Focus evidence");
   });
 });
