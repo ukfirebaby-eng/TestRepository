@@ -451,6 +451,32 @@ def evaluate_parallel_graph_baseline(vault: Any, baseline_path: str | Path) -> D
     return result
 
 
+CLAIM_ACCURACY_GATE_THRESHOLDS: Dict[str, Dict[str, float]] = {
+    "schema_valid_rate": {"min": 0.95},
+    "evidence_linkage_rate": {"min": 0.90},
+    "dependency_recall": {"min": 0.85},
+    "false_positive_contradiction_rate": {"max": 0.10},
+    "graph_promoted_without_evidence": {"max": 0},
+    "accepted_without_validation": {"max": 0},
+    "promoted_edges_without_claim_id": {"max": 0},
+}
+
+
+def evaluate_claim_accuracy_gate(
+    metrics: Dict[str, Any],
+    thresholds: Dict[str, Dict[str, float]] | None = None,
+) -> Dict[str, Any]:
+    """Evaluate whether claim promotion is ready to replace direct graph extraction."""
+    gate_thresholds = thresholds or CLAIM_ACCURACY_GATE_THRESHOLDS
+    failures = compare_metrics(metrics, gate_thresholds)
+    return {
+        "passed": not failures,
+        "metrics": metrics,
+        "thresholds": gate_thresholds,
+        "failures": failures,
+    }
+
+
 def live_evaluation_enabled() -> bool:
     """Return True only when live model-backed evaluation is explicitly enabled."""
     return os.environ.get("DIAMOND_MINER_LIVE_EVALUATION", "").strip().lower() in {"1", "true", "yes", "on"}
