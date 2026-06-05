@@ -7,6 +7,24 @@ export default defineConfig({
   build: {
     outDir: "../static/app-v2",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 950,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("/react/") || id.includes("/react-dom/") || id.includes("@vitejs/plugin-react")) {
+            return "react-vendor";
+          }
+          if (id.includes("/three/") || id.includes("@react-three")) {
+            return "three-vendor";
+          }
+          if (id.includes("/sigma/") || id.includes("/graphology/")) {
+            return "graph-vendor";
+          }
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     proxy: {
