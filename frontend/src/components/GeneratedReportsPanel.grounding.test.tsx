@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ExecutiveReport } from "./GeneratedReportsPanel";
+import { ExecutiveReport, NarrativeReport } from "./GeneratedReportsPanel";
 
 describe("ExecutiveReport grounding", () => {
   it("renders confidence and claim support for grounded issues", () => {
@@ -44,5 +44,25 @@ describe("ExecutiveReport grounding", () => {
 
     expect(screen.getByText("High confidence 88%")).toBeTruthy();
     expect(screen.getByText("2 claims · 1 evidence span")).toBeTruthy();
+  });
+});
+
+describe("NarrativeReport grounding", () => {
+  it("renders provenance when chapters expose claim fields directly", () => {
+    render(<NarrativeReport payload={{
+      overall_assessment: "High Risk",
+      summary_narrative: "Narrative report is grounded by claims.",
+      chapters: [{
+        title: "Schedule and dependency risk",
+        narrative: "The programme depends on a security approval chain.",
+        confidence_score: 0.74,
+        confidence_level: "medium",
+        claim_ids: ["claim_7"],
+        evidence_span_ids: ["span_7", "span_8"],
+      }],
+    }} />);
+
+    expect(screen.getByText("Medium confidence 74%")).toBeTruthy();
+    expect(screen.getByText("1 claim · 2 evidence spans")).toBeTruthy();
   });
 });

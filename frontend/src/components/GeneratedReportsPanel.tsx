@@ -268,7 +268,7 @@ export function ExecutiveReport({ payload }: { payload: unknown }) {
   );
 }
 
-function NarrativeReport({ payload }: { payload: unknown }) {
+export function NarrativeReport({ payload }: { payload: unknown }) {
   const report = asRecord(payload);
   const chapters = asArray(report.chapters).slice(0, 6);
   return (
@@ -284,7 +284,7 @@ function NarrativeReport({ payload }: { payload: unknown }) {
             <span>Chapter {index + 1}</span>
             <strong>{text(chapter.title, "Untitled chapter")}</strong>
             <small>{snippet(chapter.narrative)}</small>
-            <GroundingSummary grounding={chapter.grounding_summary} />
+            <GroundingSummary grounding={chapter.grounding_summary || chapter} />
           </div>
         ))}
       </div>
