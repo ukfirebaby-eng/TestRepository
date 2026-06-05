@@ -35,6 +35,15 @@ const mockCanvas = {
         why_it_matters: "The programme could be forced to begin migration without a valid security gate, creating compliance, rework, and approval risk. This is intentionally long enough to reproduce the selected-evidence sidebar height seen in production.",
         recommended_action: "Move Cloud Migration after certification or formally accept the security-gate risk at board level.",
         confidence: 0.86,
+        confidence_score: 0.86,
+        confidence_level: "high",
+        confidence_factors: {
+          model_confidence: 0.91,
+          evidence_completeness: 0.8,
+          graph_specificity: 0.75,
+          risk_score_availability: 1,
+          claim_provenance_strength: 0.6,
+        },
         assumptions: ["Security certification is mandatory before migration starts."],
       },
     },
@@ -351,6 +360,8 @@ test.describe("Diamond Miner app-v2", () => {
     await expect(page.locator(".analyst-map-hud")).toContainText("Selection focused");
     await expect(page.locator(".attention-item.active")).toHaveCount(1);
     await expect(page.locator(".panel-section").first()).not.toContainText("Select a node or risk path");
+    await expect(page.locator(".selected-evidence-panel")).toContainText("Confidence rationale");
+    await expect(page.locator(".selected-evidence-panel")).toContainText("claim provenance 60%");
 
     await page.locator(".analyst-map-hud").getByRole("button", { name: "Clear selection" }).click();
     await expect(page.locator(".analyst-map-hud")).toContainText("No selection");

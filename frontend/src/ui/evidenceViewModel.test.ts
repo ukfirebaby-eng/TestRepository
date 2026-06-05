@@ -139,6 +139,51 @@ describe("buildEvidenceViewModel", () => {
     expect(model.sections[3].body).toContain("Claim support: 1 validated claim; 2 evidence spans.");
   });
 
+  it("explains confidence factors for selected risk evidence", () => {
+    const model = buildEvidenceViewModel({
+      selectionType: "link",
+      title: "structural friction",
+      riskKind: "structural",
+      riskScore: 16,
+      severity: 4,
+      probability: 4,
+      sourceName: "Cloud Migration",
+      targetName: "Security Certification",
+      finding: {
+        title: "Cloud migration starts before security gate can be passed",
+        risk_type: "approval gate",
+        affected_entity: "Cloud Migration",
+        evidence_summary: "Migration starts before certification.",
+        why_it_matters: "The gate may be bypassed.",
+        recommended_action: "Move migration after certification.",
+        confidence_score: 0.86,
+        confidence_level: "high",
+        confidence_factors: {
+          model_confidence: 0.91,
+          evidence_completeness: 0.8,
+          graph_specificity: 0.75,
+          risk_score_availability: 1,
+          claim_provenance_strength: 0.6,
+        },
+      },
+      plainEnglish: {
+        heading: "Cloud migration starts before security gate can be passed",
+        meaning: "Migration is planned before security certification can complete.",
+        impact: "The programme may bypass a required approval gate.",
+        scoreMeaning: "High confidence 86%.",
+        actions: ["Move migration after certification."],
+      },
+    });
+
+    const confidenceSection = model.sections.find((section) => section.title === "Confidence rationale");
+
+    expect(confidenceSection?.body).toContain("model confidence 91%");
+    expect(confidenceSection?.body).toContain("evidence completeness 80%");
+    expect(confidenceSection?.body).toContain("graph specificity 75%");
+    expect(confidenceSection?.body).toContain("risk score availability 100%");
+    expect(confidenceSection?.body).toContain("claim provenance 60%");
+  });
+
   it("marks legacy-only graph risks for review", () => {
     const model = buildEvidenceViewModel({
       selectionType: "link",

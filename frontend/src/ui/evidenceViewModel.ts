@@ -1,5 +1,5 @@
 type EvidenceSection = {
-  title: "What this is" | "Why it matters" | "Recommended action" | "Supporting graph evidence";
+  title: "What this is" | "Why it matters" | "Confidence rationale" | "Recommended action" | "Supporting graph evidence";
   body: string;
 };
 
@@ -143,6 +143,22 @@ function provenanceBadge(finding?: RiskFinding): string {
   return "";
 }
 
+function percentage(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function confidenceFactorText(finding?: RiskFinding): string {
+  const factors = finding?.confidence_factors;
+  if (!factors) return "";
+  return [
+    typeof factors.model_confidence === "number" ? `model confidence ${percentage(factors.model_confidence)}` : "",
+    typeof factors.evidence_completeness === "number" ? `evidence completeness ${percentage(factors.evidence_completeness)}` : "",
+    typeof factors.graph_specificity === "number" ? `graph specificity ${percentage(factors.graph_specificity)}` : "",
+    typeof factors.risk_score_availability === "number" ? `risk score availability ${percentage(factors.risk_score_availability)}` : "",
+    typeof factors.claim_provenance_strength === "number" ? `claim provenance ${percentage(factors.claim_provenance_strength)}` : "",
+  ].filter(Boolean).join("; ");
+}
+
 export function buildEvidenceViewModel(input: LinkInput | NodeInput): EvidenceViewModel {
   if (input.selectionType === "link") {
     const findingType = input.finding?.risk_type ? `${sentenceCase(input.finding.risk_type)} risk` : "";
@@ -162,17 +178,24 @@ export function buildEvidenceViewModel(input: LinkInput | NodeInput): EvidenceVi
       : input.isSelfReferential
       ? `The graph has this risk attached to ${input.sourceName} as a programme-level evidence item. Use the recommendation text to identify the real underlying milestone, approval, or blocker.`
       : `${input.sourceName} connects to ${input.targetName} through ${input.title}.`;
+    const confidenceBody = confidenceFactorText(input.finding);
+    const sections: EvidenceSection[] = [
+      { title: "What this is", body: input.plainEnglish.meaning },
+      { title: "Why it matters", body: `${input.plainEnglish.impact} ${input.plainEnglish.scoreMeaning}`.trim() },
+    ];
+    if (confidenceBody) {
+      sections.push({ title: "Confidence rationale", body: confidenceBody });
+    }
+    sections.push(
+      { title: "Recommended action", body: input.plainEnglish.actions.join(" ") || input.analysis || "Review and correct the highlighted dependency." },
+      { title: "Supporting graph evidence", body: evidenceBody },
+    );
 
     return {
       heading: input.plainEnglish.heading || input.title,
       subheading,
       badges: [...scoreBadges(input), confidenceBadge(input.finding), provenanceBadge(input.finding)].filter(Boolean),
-      sections: [
-        { title: "What this is", body: input.plainEnglish.meaning },
-        { title: "Why it matters", body: `${input.plainEnglish.impact} ${input.plainEnglish.scoreMeaning}`.trim() },
-        { title: "Recommended action", body: input.plainEnglish.actions.join(" ") || input.analysis || "Review and correct the highlighted dependency." },
-        { title: "Supporting graph evidence", body: evidenceBody },
-      ],
+      sections,
     };
   }
 
