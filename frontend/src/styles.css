@@ -1043,10 +1043,17 @@ button { cursor: pointer; }
 }
 .accuracy-graph-edge {
   min-width: 0;
+  width: 100%;
+  text-align: left;
   border: 1px solid rgba(155, 174, 188, 0.12);
   border-radius: 6px;
   padding: 8px;
   background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+}
+.accuracy-graph-edge:hover {
+  border-color: rgba(115, 198, 232, 0.34);
+  background: rgba(115, 198, 232, 0.06);
 }
 .accuracy-graph-edge b {
   display: block;
@@ -1054,6 +1061,40 @@ button { cursor: pointer; }
   font-size: 0.82rem;
   line-height: 1.35;
   text-transform: capitalize;
+}
+.accuracy-review-detail {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(245, 201, 95, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(245, 201, 95, 0.055);
+}
+.accuracy-review-detail h4 {
+  margin: 2px 0 0;
+  color: #edf4f7;
+}
+.accuracy-review-detail > span {
+  width: fit-content;
+  border: 1px solid rgba(245, 201, 95, 0.28);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #ffd666;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+.accuracy-review-detail p,
+.accuracy-review-detail small {
+  margin: 0;
+  color: #c3d0d8;
+  line-height: 1.45;
+}
+.accuracy-review-detail blockquote {
+  margin: 0;
+  border-left: 2px solid rgba(245, 201, 95, 0.42);
+  padding-left: 10px;
+  color: #edf4f7;
+  line-height: 1.45;
 }
 .accuracy-graph-edge small,
 .accuracy-graph-candidates section > small {

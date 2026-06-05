@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { loadAccuracyPayload } from "../api/client";
 import type { AccuracyPayload } from "../api/types";
+import { buildGraphReviewCandidate, type GraphReviewCandidate } from "../ui/accuracyReview";
 
 type Props = {
   documentId: string;
@@ -18,11 +19,13 @@ function readableId(value: string) {
 export function AccuracyWorkspace({ documentId, documentName }: Props) {
   const [payload, setPayload] = useState<AccuracyPayload | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [selectedCandidate, setSelectedCandidate] = useState<GraphReviewCandidate | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setState("loading");
     setPayload(null);
+    setSelectedCandidate(null);
     loadAccuracyPayload(documentId)
       .then((result) => {
         if (!cancelled) {
@@ -137,15 +140,21 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
               <strong>Claim-only edges</strong>
               {graphAgreement.claim_only_edges.length > 0 ? (
                 graphAgreement.claim_only_edges.map((edge) => (
-                  <article
+                  <button
                     key={`claim-${edge.canonical_source_id}-${edge.relationship}-${edge.canonical_target_id}`}
                     className="accuracy-graph-edge"
+                    onClick={() => setSelectedCandidate(buildGraphReviewCandidate(
+                      edge,
+                      "claim-only",
+                      payload.claims,
+                      payload.evidence_spans,
+                    ))}
                   >
                     <b>{readableId(edge.source_id)} {edge.relationship.toLowerCase()} {readableId(edge.target_id)}</b>
                     <small>
                       Claim {edge.claim_id || "not recorded"} · {edge.evidence_span_ids.length} evidence span(s)
                     </small>
-                  </article>
+                  </button>
                 ))
               ) : (
                 <small>No claim-only edges found.</small>
@@ -155,13 +164,19 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
               <strong>Legacy-only edges</strong>
               {graphAgreement.legacy_only_edges.length > 0 ? (
                 graphAgreement.legacy_only_edges.map((edge) => (
-                  <article
+                  <button
                     key={`legacy-${edge.canonical_source_id}-${edge.relationship}-${edge.canonical_target_id}`}
                     className="accuracy-graph-edge"
+                    onClick={() => setSelectedCandidate(buildGraphReviewCandidate(
+                      edge,
+                      "legacy-only",
+                      payload.claims,
+                      payload.evidence_spans,
+                    ))}
                   >
                     <b>{readableId(edge.source_id)} {edge.relationship.toLowerCase()} {readableId(edge.target_id)}</b>
                     <small>Source chunk {edge.source_chunk_id || "not recorded"}</small>
-                  </article>
+                  </button>
                 ))
               ) : (
                 <small>No legacy-only edges found.</small>
@@ -169,6 +184,18 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
             </section>
           </div>
         </div>
+        {selectedCandidate && (
+          <aside className="accuracy-review-detail">
+            <div>
+              <p className="eyebrow">Review candidate detail</p>
+              <h4>{selectedCandidate.label}</h4>
+            </div>
+            <span>{selectedCandidate.status}</span>
+            <p>{selectedCandidate.summary}</p>
+            <blockquote>{selectedCandidate.evidence}</blockquote>
+            <small>{selectedCandidate.action}</small>
+          </aside>
+        )}
         <div className="accuracy-review-reasons">
           <span>Top review reasons</span>
           {payload.quality.top_review_reasons.length > 0 ? (
