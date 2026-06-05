@@ -98,6 +98,30 @@ class TestStorytellerAgent:
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["max_tokens"] <= 4096
 
+    def test_run_instructs_model_to_preserve_claim_provenance_when_available(self):
+        from core.agents import StorytellerAgent
+        agent = StorytellerAgent()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_openai_response(
+            json.dumps(_draft_report())
+        )
+
+        raw = _raw_issues()
+        raw["friction_lines"][0]["finding"] = {
+            "claim_ids": ["claim_1"],
+            "evidence_span_ids": ["span_1"],
+            "claim_validation_status": "passed",
+            "graph_agreement": "shared",
+        }
+
+        with patch("core.agents._get_client", return_value=mock_client):
+            agent.run(raw)
+
+        messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        system_prompt = messages[0]["content"]
+        assert "claim IDs" in system_prompt
+        assert "evidence span IDs" in system_prompt
+
     def test_zero_issues_returns_no_issues_found_report(self):
         from core.agents import StorytellerAgent
         agent = StorytellerAgent()

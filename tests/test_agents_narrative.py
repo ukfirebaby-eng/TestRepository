@@ -218,6 +218,31 @@ class TestRecursiveDraftingAgent:
             "Issues with severity >= 5 must have 'MUST INCLUDE' in the prompt"
         )
 
+    def test_claim_provenance_is_preserved_in_chapter_issue_lines(self):
+        raw = _raw_issues_with_many()
+        raw["friction_lines"][0]["finding"] = {
+            "claim_ids": ["claim_1"],
+            "evidence_span_ids": ["span_1"],
+            "claim_validation_status": "passed",
+            "graph_agreement": "shared",
+        }
+        agent = self._make_agent(raw)
+        chapter = {"title": "Critical Issues", "indices": [0]}
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_openai_response(
+            "Critical issues narrative."
+        )
+
+        with patch("core.agents._get_client", return_value=mock_client):
+            agent.run(chapter, rolling_context="")
+
+        messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        all_content = " ".join(m["content"] for m in messages)
+        assert "claim_1" in all_content
+        assert "span_1" in all_content
+        assert "claim validation: passed" in all_content
+
     def test_revise_updates_narrative(self):
         """revise() returns a dict with 'narrative' that differs from the original."""
         agent = self._make_agent()

@@ -50,6 +50,37 @@ EXECUTIVE_REPORT_MAX_TOKENS = 4096
 NARRATIVE_CHAPTER_MAX_TOKENS = 3072
 
 
+def _as_text_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if value is not None and str(value).strip():
+        return [str(value).strip()]
+    return []
+
+
+def _issue_provenance_note(issue: Dict[str, Any]) -> str:
+    finding = issue.get("finding") if isinstance(issue.get("finding"), dict) else {}
+    claim_ids = _as_text_list(issue.get("claim_ids") or finding.get("claim_ids") or finding.get("claim_id"))
+    evidence_span_ids = _as_text_list(
+        issue.get("evidence_span_ids") or finding.get("evidence_span_ids") or finding.get("evidence_span_id")
+    )
+    claim_validation = str(
+        issue.get("claim_validation_status") or finding.get("claim_validation_status") or finding.get("validation_status") or ""
+    ).strip()
+    graph_agreement = str(issue.get("graph_agreement") or finding.get("graph_agreement") or "").strip()
+
+    parts = []
+    if claim_ids:
+        parts.append(f"claim IDs: {', '.join(claim_ids)}")
+    if evidence_span_ids:
+        parts.append(f"evidence span IDs: {', '.join(evidence_span_ids)}")
+    if claim_validation:
+        parts.append(f"claim validation: {claim_validation}")
+    if graph_agreement:
+        parts.append(f"graph agreement: {graph_agreement}")
+    return f" [provenance - {'; '.join(parts)}]" if parts else ""
+
+
 class DeconstructorAgent:
     """
     The deterministic parser. It reads raw text and converts it into a
@@ -332,7 +363,8 @@ RULES:
 2. Express every issue as a business consequence (cost, compliance, delay, dependency).
 3. Use "issue" not "paradox" or "diamond".
 4. Use British English spelling and conventions throughout (e.g. "organisation", "recognised", "programme").
-5. Return ONLY valid JSON matching the schema below. No markdown, no preamble.
+5. When raw issues include claim IDs or evidence span IDs, use them as grounding metadata, preserve those identifiers in the issue output where possible, and make uncertainty clear for legacy-only or needs-review items.
+6. Return ONLY valid JSON matching the schema below. No markdown, no preamble.
 
 OUTPUT SCHEMA:
 {
@@ -346,7 +378,10 @@ OUTPUT SCHEMA:
       "title": "<short plain-English title, max 10 words>",
       "plain_english": "<plain-English description of the problem and its business consequence>",
       "solution": "<plain-English recommended fix>",
-      "source_nodes": ["<node_id>"]
+      "source_nodes": ["<node_id>"],
+      "claim_ids": ["<claim_id>"],
+      "evidence_span_ids": ["<span_id>"],
+      "confidence_level": "<high | medium | low, if supplied>"
     }
   ],
   "coverage_verified": true,
@@ -744,7 +779,7 @@ class RecursiveDraftingAgent:
                 severity = issue.get("severity", "?")
                 description = issue.get("diamond", issue.get("insight", issue.get("label", str(issue))))
                 prefix = "MUST INCLUDE: " if isinstance(severity, int) and severity >= 5 else ""
-                issue_lines.append(f"- {prefix}{description} (severity: {severity})")
+                issue_lines.append(f"- {prefix}{description} (severity: {severity}){_issue_provenance_note(issue)}")
 
         issues_block = "\n".join(issue_lines) if issue_lines else "(no issues)"
 
@@ -772,6 +807,7 @@ class RecursiveDraftingAgent:
                         "You are an Executive Risk Writer. "
                         "Write clear, authoritative prose narratives for risk report chapters. "
                         "Use British English spelling and conventions throughout. "
+                        "Use claim and evidence provenance as grounding when it is present, and do not overstate legacy-only or needs-review evidence. "
                         "Do not use bullet points. Do not return JSON. Plain prose only. "
                         "Do not begin your response with the chapter title."
                     ),
