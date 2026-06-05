@@ -58,6 +58,141 @@ const mockCanvas = {
   ],
 };
 
+const mockAccuracyPayload = {
+  document_id: mockDocument.id,
+  manifest: {
+    document_id: mockDocument.id,
+    filename: mockDocument.name,
+    source_hash: "sha256:e2e",
+    ingested_at: "2026-05-31T10:00:00Z",
+    parser_version: "e2e-parser",
+    schema_version: "claim-layer-v1",
+    llm_model: "mock-smart",
+    validation_status: "validated",
+  },
+  counts: {
+    evidence_spans: 2,
+    claims: 2,
+    validated: 1,
+    needs_review: 1,
+    failed: 0,
+    extraction_failures: 0,
+    canonical_entities: 3,
+  },
+  evidence_spans: [
+    {
+      span_id: "span_1",
+      document_id: mockDocument.id,
+      chunk_id: "chunk_1",
+      page_number: 1,
+      text: "Cloud Migration requires Security Certification before launch.",
+      span_type: "sentence",
+      source_hash: "sha256:e2e",
+    },
+  ],
+  claims: [
+    {
+      claim_id: "claim_1",
+      document_id: mockDocument.id,
+      claim_type: "dependency",
+      subject: "Cloud Migration",
+      predicate: "requires",
+      object: "Security Certification",
+      modality: "must",
+      certainty: "explicit",
+      status: "accepted",
+      evidence_span_ids: ["span_1"],
+      source_quote: "Cloud Migration requires Security Certification before launch.",
+      confidence: 0.96,
+      validation_status: "passed",
+    },
+  ],
+  canonical_entities: [
+    {
+      entity_id: "entity_cloud_migration",
+      document_id: mockDocument.id,
+      canonical_name: "Cloud Migration",
+      entity_type: "milestone",
+      aliases: ["Cloud Migration"],
+      source_span_ids: ["span_1"],
+      confidence: 0.98,
+    },
+    {
+      entity_id: "entity_central_authentication_service",
+      document_id: mockDocument.id,
+      canonical_name: "Central Authentication Service",
+      entity_type: "service",
+      aliases: ["Central Authentication Service"],
+      source_span_ids: ["span_2"],
+      confidence: 0.95,
+    },
+  ],
+  validation_results: [
+    {
+      claim_id: "claim_1",
+      document_id: mockDocument.id,
+      status: "passed",
+      reasons: [],
+      can_promote: 1,
+    },
+    {
+      claim_id: "claim_2",
+      document_id: mockDocument.id,
+      status: "needs_review",
+      reasons: ["ambiguous blocker wording"],
+      can_promote: 0,
+    },
+  ],
+  extraction_failures: [],
+  quality: {
+    extraction_coverage: {
+      evidence_span_count: 2,
+      evidence_spans_with_claims: 2,
+      coverage_rate: 1,
+      claims_per_evidence_span: 1,
+    },
+    validation_quality: {
+      passed: 1,
+      needs_review: 1,
+      failed: 0,
+      pass_rate: 0.5,
+      review_rate: 0.5,
+      fail_rate: 0,
+    },
+    promotion_readiness: {
+      promotable: 1,
+      promotion_rate: 0.5,
+    },
+    entity_normalization: {
+      canonical_entities: 3,
+      raw_aliases: 3,
+      average_aliases_per_entity: 1,
+    },
+    graph_agreement: {
+      legacy_edge_count: 2,
+      claim_promoted_edge_count: 2,
+      shared_canonical_edge_count: 1,
+      legacy_only_edge_count: 0,
+      claim_only_edge_count: 1,
+      claim_vs_legacy_overlap_rate: 0.5,
+      legacy_only_edges: [],
+      claim_only_edges: [
+        {
+          source_id: "entity_cloud_migration",
+          target_id: "entity_security_certification",
+          relationship: "REQUIRES",
+          canonical_source_id: "entity_cloud_migration",
+          canonical_target_id: "entity_security_certification",
+          source_chunk_id: "claim_layer",
+          claim_id: "claim_1",
+          evidence_span_ids: ["span_1"],
+        },
+      ],
+    },
+    top_review_reasons: [{ reason: "ambiguous blocker wording", count: 1 }],
+  },
+};
+
 async function mockAppApis(page: Page) {
   await page.route("**/api/v1/documents", async (route) => {
     if (route.request().method() === "GET") {
@@ -117,6 +252,9 @@ async function mockAppApis(page: Page) {
   });
   await page.route("**/api/v1/reports/risk-simulation/doc_e2e_mock", async (route) => {
     await route.fulfill({ json: { cached: true, result: { monte_carlo: { available: true, p95_delay_days: 45 } } } });
+  });
+  await page.route("**/api/v1/accuracy/doc_e2e_mock", async (route) => {
+    await route.fulfill({ json: mockAccuracyPayload });
   });
   await page.route("**/api/v1/config", async (route) => {
     await route.fulfill({
@@ -261,6 +399,21 @@ test.describe("Diamond Miner app-v2", () => {
     await expect(page.locator(".command-actions")).toContainText("Word Export");
     await expect(page.locator(".insight-panel")).not.toBeVisible();
     await expect(page.locator(".insight-panel")).not.toContainText("Report Channels");
+  });
+
+  test("opens the claim accuracy workspace with quality and provenance signals", async ({ page }) => {
+    await openFirstDocument(page);
+
+    await page.getByRole("button", { name: "Accuracy" }).click();
+
+    await expect(page.getByRole("button", { name: "Accuracy" })).toHaveClass(/active/);
+    await expect(page.locator(".accuracy-workspace")).toBeVisible();
+    await expect(page.locator(".accuracy-workspace")).toContainText("Claim Quality Report");
+    await expect(page.locator(".accuracy-workspace")).toContainText("Extraction coverage");
+    await expect(page.locator(".accuracy-workspace")).toContainText("Graph agreement");
+    await expect(page.locator(".accuracy-workspace")).toContainText("Claim-only edges");
+    await expect(page.locator(".accuracy-workspace")).toContainText("Cloud Migration requires Security Certification");
+    await expect(page.locator(".accuracy-workspace")).toContainText("Central Authentication Service");
   });
 
   test("keeps loaded command chrome compact at a medium viewport", async ({ page }) => {
