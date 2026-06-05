@@ -416,6 +416,23 @@ test.describe("Diamond Miner app-v2", () => {
     await expect(page.locator(".accuracy-workspace")).toContainText("Central Authentication Service");
   });
 
+  test("opens accuracy graph mismatch review details from a candidate row", async ({ page }) => {
+    await openFirstDocument(page);
+
+    await page.getByRole("button", { name: "Accuracy" }).click();
+    await expect(page.locator(".accuracy-workspace")).toBeVisible();
+
+    const candidate = page.locator(".accuracy-graph-candidates .accuracy-graph-edge").first();
+    await expect(candidate).toContainText(/cloud migration requires security certification/i);
+    await candidate.click();
+
+    await expect(page.locator(".accuracy-review-detail")).toBeVisible();
+    await expect(page.locator(".accuracy-review-detail")).toContainText("Review candidate detail");
+    await expect(page.locator(".accuracy-review-detail")).toContainText("Claim-backed, not in legacy graph");
+    await expect(page.locator(".accuracy-review-detail")).toContainText("Cloud Migration requires Security Certification before launch.");
+    await expect(page.locator(".accuracy-review-detail")).toContainText("Check whether the legacy extraction missed this relationship");
+  });
+
   test("keeps loaded command chrome compact at a medium viewport", async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 900 });
     await openFirstDocument(page);
