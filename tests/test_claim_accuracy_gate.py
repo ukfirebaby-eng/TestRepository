@@ -1,9 +1,13 @@
+from pathlib import Path
+
 import pytest
 
-from core.evaluation import evaluate_claim_accuracy_gate
+from core.evaluation import evaluate_claim_accuracy_gate, evaluate_claim_accuracy_gate_baseline
 
 
 pytestmark = pytest.mark.evaluation
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "evaluation"
 
 
 def _passing_metrics():
@@ -58,3 +62,31 @@ def test_claim_accuracy_gate_reports_threshold_failures_and_missing_metrics():
         "graph_promoted_without_evidence expected <= 0, got 1",
         "promoted_edges_without_claim_id is missing",
     ]
+
+
+def test_claim_accuracy_gate_baseline_uses_fixture_metrics():
+    baseline_path = FIXTURE_DIR / "claim_layer_programme_baseline.json"
+
+    result = evaluate_claim_accuracy_gate_baseline(baseline_path)
+
+    assert result["document_id"] == "claim_layer_programme"
+    assert result["passed"] is True
+    assert result["baseline_path"] == str(baseline_path)
+    assert result["document_path"] == str((FIXTURE_DIR / "claim_layer_programme.md").resolve())
+    assert result["metrics"]["dependency_recall"] == 1.0
+    assert result["failures"] == []
+
+
+def test_claim_accuracy_gate_baseline_reports_missing_gate_metrics(tmp_path):
+    baseline_path = tmp_path / "baseline.json"
+    baseline_path.write_text(
+        '{"document_id": "missing_gate", "document_path": "missing_gate.md"}',
+        encoding="utf-8",
+    )
+
+    result = evaluate_claim_accuracy_gate_baseline(baseline_path)
+
+    assert result["document_id"] == "missing_gate"
+    assert result["passed"] is False
+    assert result["metrics"] == {}
+    assert result["failures"] == ["accuracy_gate.metrics is missing"]

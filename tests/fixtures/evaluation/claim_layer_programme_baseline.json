@@ -50,5 +50,16 @@
       "claim_only_edge_count": { "exact": 0 },
       "claim_vs_legacy_overlap_rate": { "exact": 1.0 }
     }
+  },
+  "accuracy_gate": {
+    "metrics": {
+      "schema_valid_rate": 1.0,
+      "evidence_linkage_rate": 1.0,
+      "dependency_recall": 1.0,
+      "false_positive_contradiction_rate": 0.0,
+      "graph_promoted_without_evidence": 0,
+      "accepted_without_validation": 0,
+      "promoted_edges_without_claim_id": 0
+    }
   }
 }

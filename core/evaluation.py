@@ -477,6 +477,33 @@ def evaluate_claim_accuracy_gate(
     }
 
 
+def evaluate_claim_accuracy_gate_baseline(baseline_path: str | Path) -> Dict[str, Any]:
+    """Evaluate claim-layer replacement readiness using a JSON fixture baseline."""
+    baseline = load_evaluation_baseline(baseline_path)
+    gate = baseline.get("accuracy_gate")
+    metrics = gate.get("metrics") if isinstance(gate, dict) else None
+    thresholds = gate.get("thresholds") if isinstance(gate, dict) else None
+
+    if not isinstance(metrics, dict):
+        result = {
+            "document_id": baseline.get("document_id", ""),
+            "passed": False,
+            "metrics": {},
+            "thresholds": thresholds or CLAIM_ACCURACY_GATE_THRESHOLDS,
+            "failures": ["accuracy_gate.metrics is missing"],
+        }
+    else:
+        result = evaluate_claim_accuracy_gate(
+            metrics,
+            thresholds if isinstance(thresholds, dict) else None,
+        )
+        result["document_id"] = baseline.get("document_id", "")
+
+    result["baseline_path"] = str(Path(baseline_path))
+    result["document_path"] = str(baseline.get("document_path", ""))
+    return result
+
+
 def live_evaluation_enabled() -> bool:
     """Return True only when live model-backed evaluation is explicitly enabled."""
     return os.environ.get("DIAMOND_MINER_LIVE_EVALUATION", "").strip().lower() in {"1", "true", "yes", "on"}
