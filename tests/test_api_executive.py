@@ -122,9 +122,15 @@ class TestReportGrounding:
 
         assert grounded["grounding_summary"] == {
             "grounded_issue_count": 1,
+            "claim_ids": ["claim_1"],
+            "evidence_span_ids": ["span_1", "span_2"],
+            "claim_count": 1,
             "validated_claim_count": 1,
             "evidence_span_count": 2,
+            "legacy_only_count": 0,
             "highest_confidence_level": "high",
+            "confidence_score": 0.96,
+            "confidence_level": "high",
         }
         assert grounded["issues"][0]["grounding"]["confidence_score"] == 0.96
         assert grounded["issues"][0]["grounding"]["evidence_basis"] == "validated_claims"

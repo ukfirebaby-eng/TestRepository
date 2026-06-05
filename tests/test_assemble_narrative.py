@@ -76,3 +76,45 @@ class TestAssembleNarrative:
         assert result["coverage_verified"] is False
         assert result["executive_summary"] == ""
         assert result["coverage_warning"] is None
+
+    def test_chapters_get_grounding_summary_from_indexed_issues(self):
+        raw_issues = _make_raw_issues(
+            friction=[{
+                "severity": 4,
+                "diamond": "claim-backed issue",
+                "finding": {
+                    "claim_ids": ["claim_1"],
+                    "evidence_span_ids": ["span_1", "span_2"],
+                    "claim_validation_status": "passed",
+                    "confidence_score": 0.92,
+                    "confidence_level": "high",
+                },
+            }],
+            chron=[{
+                "severity": 3,
+                "diamond": "legacy-only issue",
+                "finding": {
+                    "claim_ids": [],
+                    "evidence_span_ids": ["span_3"],
+                    "graph_agreement": "legacy_only",
+                    "confidence_score": 0.62,
+                    "confidence_level": "medium",
+                },
+            }],
+        )
+        chapters = [{"title": "Ch1", "narrative": "text", "indices": [0, 1]}]
+
+        result = assemble_narrative(chapters, raw_issues)
+
+        assert result["chapters"][0]["grounding_summary"] == {
+            "grounded_issue_count": 2,
+            "claim_ids": ["claim_1"],
+            "evidence_span_ids": ["span_1", "span_2", "span_3"],
+            "claim_count": 1,
+            "evidence_span_count": 3,
+            "validated_claim_count": 1,
+            "legacy_only_count": 1,
+            "highest_confidence_level": "high",
+            "confidence_score": 0.77,
+            "confidence_level": "medium",
+        }

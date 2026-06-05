@@ -269,6 +269,11 @@ def _grounding_summary(groundings: List[Dict[str, Any]]) -> Dict[str, Any]:
     confidence_rank = {"high": 3, "medium": 2, "low": 1}
     levels = [str(item.get("confidence_level") or "").lower() for item in groundings]
     highest = max(levels, key=lambda level: confidence_rank.get(level, 0), default="")
+    confidence_scores = [
+        float(item.get("confidence_score"))
+        for item in groundings
+        if isinstance(item.get("confidence_score"), (int, float))
+    ]
     claim_ids = {
         claim_id
         for grounding in groundings
@@ -288,12 +293,22 @@ def _grounding_summary(groundings: List[Dict[str, Any]]) -> Dict[str, Any]:
         for claim_id in grounding.get("claim_ids", [])
         if claim_id
     }
-    return {
+    legacy_only_count = sum(1 for grounding in groundings if grounding.get("graph_agreement") == "legacy_only")
+    confidence_score = round(sum(confidence_scores) / len(confidence_scores), 2) if confidence_scores else None
+    summary = {
         "grounded_issue_count": len(groundings),
+        "claim_ids": sorted(claim_ids),
+        "evidence_span_ids": sorted(evidence_span_ids),
+        "claim_count": len(claim_ids),
         "validated_claim_count": len(validated_claim_ids),
         "evidence_span_count": len(evidence_span_ids),
+        "legacy_only_count": legacy_only_count,
         "highest_confidence_level": highest or None,
     }
+    if confidence_score is not None:
+        summary["confidence_score"] = confidence_score
+        summary["confidence_level"] = "high" if confidence_score >= 0.85 else "medium" if confidence_score >= 0.65 else "low"
+    return summary
 
 
 def _attach_report_grounding(report: Dict[str, Any], raw_issues: Dict[str, Any]) -> Dict[str, Any]:
@@ -696,7 +711,7 @@ def assemble_narrative(chapters: list, raw_issues: dict) -> dict:
         else:
             overall_assessment = "Low Risk"
 
-    return {
+    report = {
         "overall_assessment": overall_assessment,
         "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "executive_summary": "",
@@ -705,6 +720,7 @@ def assemble_narrative(chapters: list, raw_issues: dict) -> dict:
         "coverage_verified": False,
         "coverage_warning": None,
     }
+    return _attach_report_grounding(report, raw_issues)
 
 
 @app.get("/api/v1/canvas/{document_id}")
