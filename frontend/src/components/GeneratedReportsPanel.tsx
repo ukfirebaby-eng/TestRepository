@@ -259,7 +259,7 @@ export function ExecutiveReport({ payload }: { payload: unknown }) {
             <span>{text(issue.severity, "Unscored")}</span>
             <strong>{text(issue.title, "Untitled issue")}</strong>
             <small>{snippet(issue.plain_english || issue.solution)}</small>
-            <GroundingSummary grounding={issue.grounding} />
+            <GroundingSummary grounding={issue.grounding || issue} />
           </div>
         ))}
       </div>

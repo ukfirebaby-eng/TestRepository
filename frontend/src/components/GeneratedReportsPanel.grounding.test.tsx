@@ -25,4 +25,24 @@ describe("ExecutiveReport grounding", () => {
     expect(screen.getByText("High confidence 96%")).toBeTruthy();
     expect(screen.getByText("1 validated claim · 2 evidence spans")).toBeTruthy();
   });
+
+  it("renders provenance when executive issues expose claim fields directly", () => {
+    render(<ExecutiveReport payload={{
+      overall_assessment: "High Risk",
+      summary_narrative: "Migration may start before certification.",
+      issues: [{
+        severity: "high",
+        title: "Migration starts before certification",
+        plain_english: "Cloud migration is starting before security certification.",
+        solution: "Move migration until certification is complete.",
+        confidence_score: 0.88,
+        confidence_level: "high",
+        claim_ids: ["claim_1", "claim_2"],
+        evidence_span_ids: ["span_1"],
+      }],
+    }} />);
+
+    expect(screen.getByText("High confidence 88%")).toBeTruthy();
+    expect(screen.getByText("2 claims · 1 evidence span")).toBeTruthy();
+  });
 });
