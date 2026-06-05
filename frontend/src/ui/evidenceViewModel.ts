@@ -109,10 +109,38 @@ function claimSupportText(finding?: RiskFinding): string {
   if (!finding) return "";
   const claimCount = finding.claim_ids?.length || 0;
   const spanCount = finding.evidence_span_ids?.length || 0;
-  if (!claimCount && !spanCount) return "";
+  const graphAgreement = graphAgreementText(finding);
+  if (!claimCount && !spanCount) return graphAgreement;
   const validation = finding.claim_validation_status?.trim().toLowerCase();
   const claimLabel = validation === "passed" || validation === "validated" ? "validated claim" : "claim";
-  return `Claim support: ${plural(claimCount, claimLabel)}; ${plural(spanCount, "evidence span")}.`;
+  return [
+    `Claim support: ${plural(claimCount, claimLabel)}; ${plural(spanCount, "evidence span")}.`,
+    graphAgreement,
+  ].filter(Boolean).join(" ");
+}
+
+function graphAgreementText(finding?: RiskFinding): string {
+  const agreement = finding?.graph_agreement?.trim().toLowerCase();
+  if (agreement === "legacy_only") return "Graph agreement: legacy-only, not yet claim-backed.";
+  if (agreement === "claim_only") return "Graph agreement: claim-backed, not present in the legacy graph.";
+  if (agreement === "shared" || agreement === "matched") return "Graph agreement: validated claim and legacy graph agree.";
+  return "";
+}
+
+function provenanceBadge(finding?: RiskFinding): string {
+  if (!finding) return "";
+  const validation = finding.claim_validation_status?.trim().toLowerCase();
+  const claimCount = finding.claim_ids?.length || 0;
+  const spanCount = finding.evidence_span_ids?.length || 0;
+  const agreement = finding.graph_agreement?.trim().toLowerCase();
+  if (claimCount && spanCount && (validation === "passed" || validation === "validated")) {
+    return "Validated claim-backed";
+  }
+  if (claimCount && spanCount) return "Claim-backed";
+  if (spanCount) return "Evidence-linked";
+  if (agreement === "legacy_only") return "Legacy-only graph risk";
+  if (agreement === "claim_only") return "Claim-only graph risk";
+  return "";
 }
 
 export function buildEvidenceViewModel(input: LinkInput | NodeInput): EvidenceViewModel {
@@ -138,7 +166,7 @@ export function buildEvidenceViewModel(input: LinkInput | NodeInput): EvidenceVi
     return {
       heading: input.plainEnglish.heading || input.title,
       subheading,
-      badges: [...scoreBadges(input), confidenceBadge(input.finding)].filter(Boolean),
+      badges: [...scoreBadges(input), confidenceBadge(input.finding), provenanceBadge(input.finding)].filter(Boolean),
       sections: [
         { title: "What this is", body: input.plainEnglish.meaning },
         { title: "Why it matters", body: `${input.plainEnglish.impact} ${input.plainEnglish.scoreMeaning}`.trim() },

@@ -135,7 +135,44 @@ describe("buildEvidenceViewModel", () => {
     });
 
     expect(model.badges).toContain("High confidence 96%");
+    expect(model.badges).toContain("Validated claim-backed");
     expect(model.sections[3].body).toContain("Claim support: 1 validated claim; 2 evidence spans.");
+  });
+
+  it("marks legacy-only graph risks for review", () => {
+    const model = buildEvidenceViewModel({
+      selectionType: "link",
+      title: "structural friction",
+      riskKind: "structural",
+      riskScore: 12,
+      severity: 3,
+      probability: 4,
+      sourceName: "Legacy migration",
+      targetName: "Security approval",
+      finding: {
+        title: "Legacy graph-only dependency",
+        risk_type: "dependency",
+        affected_entity: "Legacy migration",
+        blocked_work: "launch",
+        blocking_condition: "security approval",
+        evidence_summary: "The edge exists in the legacy graph but has no matching validated claim.",
+        why_it_matters: "It needs review before being treated as a confirmed blocker.",
+        recommended_action: "Review source evidence.",
+        confidence_score: 0.62,
+        confidence_level: "medium",
+        graph_agreement: "legacy_only",
+      },
+      plainEnglish: {
+        heading: "Legacy graph-only dependency",
+        meaning: "This risk came from the legacy graph extraction path.",
+        impact: "It may still be valid, but it has weaker provenance.",
+        scoreMeaning: "Medium confidence.",
+        actions: ["Review source evidence."],
+      },
+    });
+
+    expect(model.badges).toContain("Legacy-only graph risk");
+    expect(model.sections[3].body).toContain("Graph agreement: legacy-only, not yet claim-backed.");
   });
 
   it("summarizes selected nodes with connection evidence", () => {
