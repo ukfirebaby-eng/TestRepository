@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { loadAccuracyPayload } from "../api/client";
+import { loadAccuracyPayload, saveAccuracyReviewDecision } from "../api/client";
 import type { AccuracyPayload } from "../api/types";
 import {
   buildGraphReviewCandidate,
@@ -43,6 +43,7 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
       .then((result) => {
         if (!cancelled) {
           setPayload(result);
+          setReviewStates(result.review_states || {});
           setState("ready");
         }
       })
@@ -92,9 +93,16 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
     setSelectedCandidate({ ...candidate, reviewState: reviewStates[candidate.id] || candidate.reviewState });
   }
 
-  function setCandidateReviewState(candidate: GraphReviewCandidate, nextState: GraphReviewState) {
+  async function setCandidateReviewState(candidate: GraphReviewCandidate, nextState: GraphReviewState) {
     setReviewStates((current) => ({ ...current, [candidate.id]: nextState }));
     setSelectedCandidate({ ...candidate, reviewState: nextState });
+    const result = await saveAccuracyReviewDecision(documentId, {
+      candidate_id: candidate.id,
+      state: nextState,
+      kind: candidate.kind,
+      label: candidate.label,
+    });
+    setReviewStates(result.review_states);
   }
 
   return (

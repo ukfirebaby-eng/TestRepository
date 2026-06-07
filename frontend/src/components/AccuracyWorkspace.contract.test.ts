@@ -8,6 +8,8 @@ describe("AccuracyWorkspace contract", () => {
 
     expect(source).toContain("buildGraphReviewCandidate");
     expect(source).toContain("filterReviewCandidates");
+    expect(source).toContain("saveAccuracyReviewDecision");
+    expect(source).toContain("result.review_states");
     expect(source).toContain("reviewStates");
     expect(source).toContain("reviewFilter");
     expect(source).toContain("selectedCandidate");

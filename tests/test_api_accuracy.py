@@ -108,6 +108,55 @@ def test_accuracy_payload_404s_for_unknown_document(client):
     assert response.json()["detail"] == "Document not found."
 
 
+def test_accuracy_review_decisions_persist_and_return_with_payload(client):
+    test_client, vault = client
+    vault.insert_document("doc_review", "review.md")
+
+    create = test_client.post("/api/v1/accuracy/doc_review/review-decisions", json={
+        "candidate_id": "claim-only:entity_cloud_migration:REQUIRES:entity_security_certification",
+        "state": "accepted",
+        "kind": "claim-only",
+        "label": "cloud migration requires security certification",
+    })
+
+    assert create.status_code == 200
+    assert create.json()["decision"]["state"] == "accepted"
+
+    update = test_client.post("/api/v1/accuracy/doc_review/review-decisions", json={
+        "candidate_id": "claim-only:entity_cloud_migration:REQUIRES:entity_security_certification",
+        "state": "ignored",
+        "kind": "claim-only",
+        "label": "cloud migration requires security certification",
+    })
+
+    assert update.status_code == 200
+    assert update.json()["review_states"] == {
+        "claim-only:entity_cloud_migration:REQUIRES:entity_security_certification": "ignored",
+    }
+
+    payload = test_client.get("/api/v1/accuracy/doc_review").json()
+
+    assert payload["review_states"] == {
+        "claim-only:entity_cloud_migration:REQUIRES:entity_security_certification": "ignored",
+    }
+    assert payload["review_decisions"][0]["kind"] == "claim-only"
+    assert payload["review_decisions"][0]["label"] == "cloud migration requires security certification"
+
+
+def test_accuracy_review_decision_rejects_invalid_state(client):
+    test_client, vault = client
+    vault.insert_document("doc_review", "review.md")
+
+    response = test_client.post("/api/v1/accuracy/doc_review/review-decisions", json={
+        "candidate_id": "candidate",
+        "state": "approved",
+        "kind": "claim-only",
+        "label": "candidate",
+    })
+
+    assert response.status_code == 422
+
+
 def test_accuracy_payload_includes_claim_quality_report(client):
     test_client, vault = client
     vault.insert_document("doc_quality", "quality.md")

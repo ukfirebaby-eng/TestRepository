@@ -50,4 +50,15 @@ describe("V2 API client document management contract", () => {
     expect(typeSource).toContain("legacy_only_edges");
     expect(typeSource).toContain("claim_only_edges");
   });
+
+  it("exposes persisted accuracy review decision endpoints", () => {
+    const clientSource = readFileSync(resolve(__dirname, "client.ts"), "utf-8");
+    const typeSource = readFileSync(resolve(__dirname, "types.ts"), "utf-8");
+
+    expect(clientSource).toContain("saveAccuracyReviewDecision");
+    expect(clientSource).toContain("`/api/v1/accuracy/${documentId}/review-decisions`");
+    expect(typeSource).toContain("AccuracyReviewDecision");
+    expect(typeSource).toContain("review_states");
+    expect(typeSource).toContain("review_decisions");
+  });
 });

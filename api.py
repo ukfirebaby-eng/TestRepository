@@ -67,6 +67,13 @@ _ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".xlsx", ".csv", "
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
+class AccuracyReviewDecisionUpdate(BaseModel):
+    candidate_id: str
+    state: Literal["needs_review", "accepted", "ignored"]
+    kind: Literal["claim-only", "legacy-only"]
+    label: str
+
+
 def _env_path() -> Path:
     """Returns the path to the .env file co-located with api.py."""
     return Path(__file__).parent / ".env"
@@ -808,6 +815,7 @@ async def get_accuracy_payload(document_id: str):
         validation_results = vault.list_validation_results(document_id)
         canonical_entities = vault.list_canonical_entities(document_id)
         extraction_failures = vault.list_extraction_failures(document_id)
+        review_decisions = vault.list_accuracy_review_decisions(document_id)
 
         return {
             "document_id": document_id,
@@ -826,6 +834,11 @@ async def get_accuracy_payload(document_id: str):
             "canonical_entities": canonical_entities,
             "validation_results": validation_results,
             "extraction_failures": extraction_failures,
+            "review_decisions": list(review_decisions.values()),
+            "review_states": {
+                candidate_id: decision["state"]
+                for candidate_id, decision in review_decisions.items()
+            },
             "quality": _build_accuracy_quality(
                 evidence_spans=evidence_spans,
                 claims=claims,
@@ -833,6 +846,37 @@ async def get_accuracy_payload(document_id: str):
                 canonical_entities=canonical_entities,
                 graph_agreement=collect_parallel_graph_agreement(vault, document_id),
             ),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/accuracy/{document_id}/review-decisions")
+async def save_accuracy_review_decision(document_id: str, body: AccuracyReviewDecisionUpdate):
+    """Persists a human triage decision for an accuracy graph mismatch candidate."""
+    try:
+        cursor = vault.conn.cursor()
+        cursor.execute("SELECT id FROM documents WHERE id = ?", (document_id,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        decision = vault.save_accuracy_review_decision(
+            document_id=document_id,
+            candidate_id=body.candidate_id,
+            state=body.state,
+            kind=body.kind,
+            label=body.label,
+        )
+        review_decisions = vault.list_accuracy_review_decisions(document_id)
+        return {
+            "decision": decision,
+            "review_decisions": list(review_decisions.values()),
+            "review_states": {
+                candidate_id: item["state"]
+                for candidate_id, item in review_decisions.items()
+            },
         }
     except HTTPException:
         raise

@@ -278,6 +278,27 @@ export type AccuracyGraphAgreementEdge = {
   evidence_span_ids: string[];
 };
 
+export type AccuracyReviewState = "needs_review" | "accepted" | "ignored";
+export type AccuracyReviewDecisionKind = "claim-only" | "legacy-only";
+
+export type AccuracyReviewDecisionUpdate = {
+  candidate_id: string;
+  state: AccuracyReviewState;
+  kind: AccuracyReviewDecisionKind;
+  label: string;
+};
+
+export type AccuracyReviewDecision = AccuracyReviewDecisionUpdate & {
+  document_id: string;
+  updated_at: string;
+};
+
+export type AccuracyReviewDecisionResult = {
+  decision: AccuracyReviewDecision;
+  review_decisions: AccuracyReviewDecision[];
+  review_states: Record<string, AccuracyReviewState>;
+};
+
 export type AccuracyQuality = {
   extraction_coverage: {
     evidence_span_count: number;
@@ -337,5 +358,7 @@ export type AccuracyPayload = {
   canonical_entities: AccuracyCanonicalEntity[];
   validation_results: AccuracyValidationResult[];
   extraction_failures: AccuracyExtractionFailure[];
+  review_decisions: AccuracyReviewDecision[];
+  review_states: Record<string, AccuracyReviewState>;
   quality: AccuracyQuality;
 };

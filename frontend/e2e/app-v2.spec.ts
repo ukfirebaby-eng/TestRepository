@@ -213,6 +213,16 @@ const mockAccuracyPayload = {
 };
 
 async function mockAppApis(page: Page) {
+  const reviewDecisions: Array<{
+    document_id: string;
+    candidate_id: string;
+    state: "needs_review" | "accepted" | "ignored";
+    kind: "claim-only" | "legacy-only";
+    label: string;
+    updated_at: string;
+  }> = [];
+  const reviewStates: Record<string, "needs_review" | "accepted" | "ignored"> = {};
+
   await page.route("**/api/v1/documents", async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({ json: { documents: [mockDocument] } });
@@ -273,7 +283,40 @@ async function mockAppApis(page: Page) {
     await route.fulfill({ json: { cached: true, result: { monte_carlo: { available: true, p95_delay_days: 45 } } } });
   });
   await page.route("**/api/v1/accuracy/doc_e2e_mock", async (route) => {
-    await route.fulfill({ json: mockAccuracyPayload });
+    await route.fulfill({
+      json: {
+        ...mockAccuracyPayload,
+        review_decisions: reviewDecisions,
+        review_states: reviewStates,
+      },
+    });
+  });
+  await page.route("**/api/v1/accuracy/doc_e2e_mock/review-decisions", async (route) => {
+    const body = JSON.parse(route.request().postData() || "{}") as {
+      candidate_id: string;
+      state: "needs_review" | "accepted" | "ignored";
+      kind: "claim-only" | "legacy-only";
+      label: string;
+    };
+    const decision = {
+      document_id: mockDocument.id,
+      candidate_id: body.candidate_id,
+      state: body.state,
+      kind: body.kind,
+      label: body.label,
+      updated_at: new Date().toISOString(),
+    };
+    const existingIndex = reviewDecisions.findIndex((item) => item.candidate_id === decision.candidate_id);
+    if (existingIndex >= 0) reviewDecisions.splice(existingIndex, 1, decision);
+    else reviewDecisions.push(decision);
+    reviewStates[decision.candidate_id] = decision.state;
+    await route.fulfill({
+      json: {
+        decision,
+        review_decisions: reviewDecisions,
+        review_states: reviewStates,
+      },
+    });
   });
   await page.route("**/api/v1/config", async (route) => {
     await route.fulfill({
@@ -466,6 +509,13 @@ test.describe("Diamond Miner app-v2", () => {
     await page.getByRole("button", { name: "Mark ignored" }).click();
     await page.getByRole("button", { name: /Ignored 1/ }).click();
     await expect(page.locator(".accuracy-graph-candidates")).toContainText("legacy gateway depends_on customer portal");
+
+    await page.reload();
+    await expect(page.getByText("COMMAND CENTER")).toBeVisible();
+    await page.locator(".doc-button").first().click();
+    await page.getByRole("button", { name: "Accuracy" }).click();
+    await expect(page.getByRole("button", { name: /Accepted 1/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Ignored 1/ })).toBeVisible();
   });
 
   test("keeps loaded command chrome compact at a medium viewport", async ({ page }) => {

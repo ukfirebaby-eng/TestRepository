@@ -1,4 +1,4 @@
-import type { AccuracyPayload, AppConfig, BottleneckItem, CanvasPayload, ClearVaultResult, ConfigUpdate, ConfigUpdateResult, DeleteDocumentResult, DocumentSummary, FrictionQueueItem, JobStatus, OperationalReports, RiskMatrixItem, ScheduleCollapseItem, UploadResult } from "./types";
+import type { AccuracyPayload, AccuracyReviewDecisionResult, AccuracyReviewDecisionUpdate, AppConfig, BottleneckItem, CanvasPayload, ClearVaultResult, ConfigUpdate, ConfigUpdateResult, DeleteDocumentResult, DocumentSummary, FrictionQueueItem, JobStatus, OperationalReports, RiskMatrixItem, ScheduleCollapseItem, UploadResult } from "./types";
 import { finalPayloadForKind, generatedReportConfig, parseSseChunk, type GeneratedReportEvent, type GeneratedReportKind } from "../reports/generated";
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -65,6 +65,17 @@ export async function loadOperationalReports(documentId: string): Promise<Operat
 
 export async function loadAccuracyPayload(documentId: string): Promise<AccuracyPayload> {
   return readJson<AccuracyPayload>(await fetch(`/api/v1/accuracy/${documentId}`));
+}
+
+export async function saveAccuracyReviewDecision(
+  documentId: string,
+  decision: AccuracyReviewDecisionUpdate,
+): Promise<AccuracyReviewDecisionResult> {
+  return readJson<AccuracyReviewDecisionResult>(await fetch(`/api/v1/accuracy/${documentId}/review-decisions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(decision),
+  }));
 }
 
 export async function getGeneratedReport(kind: GeneratedReportKind, documentId: string): Promise<{ cached: boolean; report?: unknown; result?: unknown }> {

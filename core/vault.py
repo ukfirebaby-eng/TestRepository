@@ -179,6 +179,18 @@ class HybridVault:
                 created_at TEXT NOT NULL
             )
         """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS accuracy_review_decisions (
+                document_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                label TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (document_id, candidate_id)
+            )
+        """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_failures_document ON extraction_failures(document_id)")
 
         # Friction Lines Table — persists computed diamonds so they survive restarts
@@ -473,6 +485,57 @@ class HybridVault:
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def save_accuracy_review_decision(
+        self,
+        *,
+        document_id: str,
+        candidate_id: str,
+        state: str,
+        kind: str,
+        label: str,
+    ) -> Dict[str, Any]:
+        """Upserts a human review decision for an accuracy graph mismatch candidate."""
+        updated_at = datetime.now(timezone.utc).isoformat()
+        with self._write_lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """INSERT OR REPLACE INTO accuracy_review_decisions
+                   (document_id, candidate_id, state, kind, label, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (document_id, candidate_id, state, kind, label, updated_at),
+            )
+            self.conn.commit()
+        return {
+            "document_id": document_id,
+            "candidate_id": candidate_id,
+            "state": state,
+            "kind": kind,
+            "label": label,
+            "updated_at": updated_at,
+        }
+
+    def list_accuracy_review_decisions(self, document_id: str) -> Dict[str, Dict[str, Any]]:
+        """Returns review decisions keyed by candidate ID for quick frontend hydration."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT document_id, candidate_id, state, kind, label, updated_at
+               FROM accuracy_review_decisions
+               WHERE document_id = ?
+               ORDER BY updated_at DESC""",
+            (document_id,),
+        )
+        return {
+            row["candidate_id"]: {
+                "document_id": row["document_id"],
+                "candidate_id": row["candidate_id"],
+                "state": row["state"],
+                "kind": row["kind"],
+                "label": row["label"],
+                "updated_at": row["updated_at"],
+            }
+            for row in cursor.fetchall()
+        }
+
     def insert_extraction_failures(self, failures: List[ExtractionFailure]) -> None:
         if not failures:
             return
@@ -695,6 +758,7 @@ class HybridVault:
             "executive_summaries",
             "narrative_reports",
             "risk_simulations",
+            "accuracy_review_decisions",
             "extraction_failures",
             "canonical_entities",
             "claim_validation_results",
@@ -728,6 +792,7 @@ class HybridVault:
             cursor.execute("DELETE FROM friction_lines WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM fragility_lines WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM chronological_friction_lines WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM accuracy_review_decisions WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM extraction_failures WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM canonical_entities WHERE document_id = ?", (document_id,))
             cursor.execute("DELETE FROM claim_validation_results WHERE document_id = ?", (document_id,))

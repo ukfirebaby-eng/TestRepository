@@ -161,3 +161,27 @@ def test_triangular_conflicts_include_claim_edge_provenance(vault):
 
     assert conflicts[0]["claim_ids"] == ["claim_requires", "claim_blocks"]
     assert conflicts[0]["evidence_span_ids"] == ["span_requires", "span_blocks"]
+
+
+def test_saves_and_reads_accuracy_review_decisions(vault):
+    vault.save_accuracy_review_decision(
+        document_id="doc_1",
+        candidate_id="claim-only:entity_cloud_migration:REQUIRES:entity_security_certification",
+        state="accepted",
+        kind="claim-only",
+        label="cloud migration requires security certification",
+    )
+    vault.save_accuracy_review_decision(
+        document_id="doc_1",
+        candidate_id="legacy-only:entity_gateway:DEPENDS_ON:entity_portal",
+        state="ignored",
+        kind="legacy-only",
+        label="gateway depends on portal",
+    )
+
+    loaded = vault.list_accuracy_review_decisions("doc_1")
+
+    assert loaded["claim-only:entity_cloud_migration:REQUIRES:entity_security_certification"]["state"] == "accepted"
+    assert loaded["claim-only:entity_cloud_migration:REQUIRES:entity_security_certification"]["kind"] == "claim-only"
+    assert loaded["legacy-only:entity_gateway:DEPENDS_ON:entity_portal"]["state"] == "ignored"
+    assert loaded["legacy-only:entity_gateway:DEPENDS_ON:entity_portal"]["updated_at"]
