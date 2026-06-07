@@ -1023,6 +1023,29 @@ button { cursor: pointer; }
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+.accuracy-review-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.accuracy-review-filters button {
+  border: 1px solid rgba(155, 174, 188, 0.16);
+  border-radius: 999px;
+  padding: 6px 9px;
+  color: #c3d0d8;
+  background: rgba(255, 255, 255, 0.025);
+  font-weight: 800;
+  cursor: pointer;
+}
+.accuracy-review-filters button.active {
+  color: #edf4f7;
+  border-color: rgba(115, 198, 232, 0.52);
+  background: rgba(115, 198, 232, 0.11);
+}
+.accuracy-review-filters b {
+  margin-left: 4px;
+  color: #f5c95f;
+}
 .accuracy-graph-candidates > div {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1062,6 +1085,18 @@ button { cursor: pointer; }
   line-height: 1.35;
   text-transform: capitalize;
 }
+.accuracy-graph-edge em {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 6px;
+  border: 1px solid rgba(245, 201, 95, 0.22);
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #f5c95f;
+  font-style: normal;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
 .accuracy-review-detail {
   display: grid;
   gap: 8px;
@@ -1082,6 +1117,38 @@ button { cursor: pointer; }
   color: #ffd666;
   font-size: 0.68rem;
   font-weight: 800;
+}
+.accuracy-review-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid rgba(155, 174, 188, 0.12);
+  border-radius: 7px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.16);
+}
+.accuracy-review-state strong {
+  color: #edf4f7;
+  font-size: 0.78rem;
+}
+.accuracy-review-state div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.accuracy-review-state button {
+  border: 1px solid rgba(155, 174, 188, 0.16);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: #edf4f7;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+}
+.accuracy-review-state button:hover {
+  border-color: rgba(115, 198, 232, 0.44);
+  background: rgba(115, 198, 232, 0.08);
 }
 .accuracy-review-detail p,
 .accuracy-review-detail small {

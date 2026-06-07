@@ -181,10 +181,20 @@ const mockAccuracyPayload = {
       legacy_edge_count: 2,
       claim_promoted_edge_count: 2,
       shared_canonical_edge_count: 1,
-      legacy_only_edge_count: 0,
+      legacy_only_edge_count: 1,
       claim_only_edge_count: 1,
       claim_vs_legacy_overlap_rate: 0.5,
-      legacy_only_edges: [],
+      legacy_only_edges: [
+        {
+          source_id: "entity_legacy_gateway",
+          target_id: "entity_customer_portal",
+          relationship: "DEPENDS_ON",
+          canonical_source_id: "entity_legacy_gateway",
+          canonical_target_id: "entity_customer_portal",
+          source_chunk_id: "chunk_legacy_1",
+          evidence_span_ids: [],
+        },
+      ],
       claim_only_edges: [
         {
           source_id: "entity_cloud_migration",
@@ -442,6 +452,20 @@ test.describe("Diamond Miner app-v2", () => {
     await expect(page.locator(".accuracy-review-detail")).toContainText("Claim-backed, not in legacy graph");
     await expect(page.locator(".accuracy-review-detail")).toContainText("Cloud Migration requires Security Certification before launch.");
     await expect(page.locator(".accuracy-review-detail")).toContainText("Check whether the legacy extraction missed this relationship");
+
+    await page.getByRole("button", { name: "Mark accepted" }).click();
+    await expect(page.locator(".accuracy-review-detail")).toContainText("Accepted");
+    await page.getByRole("button", { name: /Accepted 1/ }).click();
+    await expect(page.locator(".accuracy-graph-candidates")).toContainText(/cloud migration requires security certification/i);
+    await page.getByRole("button", { name: /Ignored 0/ }).click();
+    await expect(page.locator(".accuracy-graph-candidates")).toContainText("No claim-only edges match this filter.");
+
+    await page.getByRole("button", { name: /All 2/ }).click();
+    const legacyCandidate = page.locator(".accuracy-graph-edge", { hasText: "legacy gateway depends_on customer portal" });
+    await legacyCandidate.click();
+    await page.getByRole("button", { name: "Mark ignored" }).click();
+    await page.getByRole("button", { name: /Ignored 1/ }).click();
+    await expect(page.locator(".accuracy-graph-candidates")).toContainText("legacy gateway depends_on customer portal");
   });
 
   test("keeps loaded command chrome compact at a medium viewport", async ({ page }) => {

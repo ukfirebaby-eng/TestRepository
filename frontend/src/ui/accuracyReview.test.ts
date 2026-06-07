@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGraphReviewCandidate } from "./accuracyReview";
+import { buildGraphReviewCandidate, filterReviewCandidates, reviewCandidateKey } from "./accuracyReview";
 import type { AccuracyClaim, AccuracyEvidenceSpan, AccuracyGraphAgreementEdge } from "../api/types";
 
 const claimOnlyEdge: AccuracyGraphAgreementEdge = {
@@ -69,5 +69,24 @@ describe("buildGraphReviewCandidate", () => {
     expect(candidate.status).toBe("Legacy graph only");
     expect(candidate.evidence).toBe("No validated claim evidence is linked to this edge yet.");
     expect(candidate.action).toContain("Find source evidence or leave it out of claim-promoted graph output");
+  });
+
+  it("assigns stable review keys and filters candidates by local review state", () => {
+    const claimOnly = buildGraphReviewCandidate(claimOnlyEdge, "claim-only", claims, spans);
+    const legacyOnly = buildGraphReviewCandidate(legacyOnlyEdge, "legacy-only", claims, spans);
+    const states = {
+      [reviewCandidateKey(claimOnlyEdge, "claim-only")]: "accepted" as const,
+      [reviewCandidateKey(legacyOnlyEdge, "legacy-only")]: "ignored" as const,
+    };
+
+    expect(claimOnly.id).toBe("claim-only:entity_cloud_migration:REQUIRES:entity_security_certification");
+    expect(legacyOnly.reviewState).toBe("needs_review");
+    expect(filterReviewCandidates([claimOnly, legacyOnly], states, "accepted")).toEqual([
+      { ...claimOnly, reviewState: "accepted" },
+    ]);
+    expect(filterReviewCandidates([claimOnly, legacyOnly], states, "all").map((candidate) => candidate.reviewState)).toEqual([
+      "accepted",
+      "ignored",
+    ]);
   });
 });

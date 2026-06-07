@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { loadAccuracyPayload } from "../api/client";
 import type { AccuracyPayload } from "../api/types";
-import { buildGraphReviewCandidate, type GraphReviewCandidate } from "../ui/accuracyReview";
+import {
+  buildGraphReviewCandidate,
+  filterReviewCandidates,
+  type GraphReviewCandidate,
+  type GraphReviewFilter,
+  type GraphReviewState,
+  type GraphReviewStateMap,
+} from "../ui/accuracyReview";
 
 type Props = {
   documentId: string;
@@ -12,20 +19,26 @@ function percent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function readableId(value: string) {
-  return value.replace(/^entity_/, "").replace(/_/g, " ");
+function reviewStateLabel(state: GraphReviewState) {
+  if (state === "accepted") return "Accepted";
+  if (state === "ignored") return "Ignored";
+  return "Needs review";
 }
 
 export function AccuracyWorkspace({ documentId, documentName }: Props) {
   const [payload, setPayload] = useState<AccuracyPayload | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [selectedCandidate, setSelectedCandidate] = useState<GraphReviewCandidate | null>(null);
+  const [reviewStates, setReviewStates] = useState<GraphReviewStateMap>({});
+  const [reviewFilter, setReviewFilter] = useState<GraphReviewFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
     setState("loading");
     setPayload(null);
     setSelectedCandidate(null);
+    setReviewStates({});
+    setReviewFilter("all");
     loadAccuracyPayload(documentId)
       .then((result) => {
         if (!cancelled) {
@@ -51,6 +64,38 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
 
   const hasArtefacts = payload.counts.claims > 0 || payload.counts.evidence_spans > 0;
   const graphAgreement = payload.quality.graph_agreement;
+  const allCandidates = [
+    ...graphAgreement.claim_only_edges.map((edge) => buildGraphReviewCandidate(
+      edge,
+      "claim-only",
+      payload.claims,
+      payload.evidence_spans,
+    )),
+    ...graphAgreement.legacy_only_edges.map((edge) => buildGraphReviewCandidate(
+      edge,
+      "legacy-only",
+      payload.claims,
+      payload.evidence_spans,
+    )),
+  ];
+  const visibleCandidates = filterReviewCandidates(allCandidates, reviewStates, reviewFilter);
+  const visibleClaimOnly = visibleCandidates.filter((candidate) => candidate.kind === "claim-only");
+  const visibleLegacyOnly = visibleCandidates.filter((candidate) => candidate.kind === "legacy-only");
+  const candidateCounts = {
+    all: allCandidates.length,
+    needs_review: filterReviewCandidates(allCandidates, reviewStates, "needs_review").length,
+    accepted: filterReviewCandidates(allCandidates, reviewStates, "accepted").length,
+    ignored: filterReviewCandidates(allCandidates, reviewStates, "ignored").length,
+  };
+
+  function selectCandidate(candidate: GraphReviewCandidate) {
+    setSelectedCandidate({ ...candidate, reviewState: reviewStates[candidate.id] || candidate.reviewState });
+  }
+
+  function setCandidateReviewState(candidate: GraphReviewCandidate, nextState: GraphReviewState) {
+    setReviewStates((current) => ({ ...current, [candidate.id]: nextState }));
+    setSelectedCandidate({ ...candidate, reviewState: nextState });
+  }
 
   return (
     <section className="accuracy-workspace" aria-label="Claim accuracy workspace">
@@ -135,51 +180,57 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
         </div>
         <div className="accuracy-graph-candidates">
           <span>Graph review candidates</span>
+          <div className="accuracy-review-filters" aria-label="Review state filters">
+            {([
+              ["all", "All"],
+              ["needs_review", "Needs review"],
+              ["accepted", "Accepted"],
+              ["ignored", "Ignored"],
+            ] as const).map(([filter, label]) => (
+              <button
+                key={filter}
+                className={reviewFilter === filter ? "active" : ""}
+                onClick={() => setReviewFilter(filter)}
+              >
+                {label} <b>{candidateCounts[filter]}</b>
+              </button>
+            ))}
+          </div>
           <div>
             <section>
               <strong>Claim-only edges</strong>
-              {graphAgreement.claim_only_edges.length > 0 ? (
-                graphAgreement.claim_only_edges.map((edge) => (
+              {visibleClaimOnly.length > 0 ? (
+                visibleClaimOnly.map((candidate) => (
                   <button
-                    key={`claim-${edge.canonical_source_id}-${edge.relationship}-${edge.canonical_target_id}`}
+                    key={candidate.id}
                     className="accuracy-graph-edge"
-                    onClick={() => setSelectedCandidate(buildGraphReviewCandidate(
-                      edge,
-                      "claim-only",
-                      payload.claims,
-                      payload.evidence_spans,
-                    ))}
+                    onClick={() => selectCandidate(candidate)}
                   >
-                    <b>{readableId(edge.source_id)} {edge.relationship.toLowerCase()} {readableId(edge.target_id)}</b>
-                    <small>
-                      Claim {edge.claim_id || "not recorded"} · {edge.evidence_span_ids.length} evidence span(s)
-                    </small>
+                    <b>{candidate.label}</b>
+                    <small>{candidate.status}</small>
+                    <em>{reviewStateLabel(candidate.reviewState)}</em>
                   </button>
                 ))
               ) : (
-                <small>No claim-only edges found.</small>
+                <small>No claim-only edges match this filter.</small>
               )}
             </section>
             <section>
               <strong>Legacy-only edges</strong>
-              {graphAgreement.legacy_only_edges.length > 0 ? (
-                graphAgreement.legacy_only_edges.map((edge) => (
+              {visibleLegacyOnly.length > 0 ? (
+                visibleLegacyOnly.map((candidate) => (
                   <button
-                    key={`legacy-${edge.canonical_source_id}-${edge.relationship}-${edge.canonical_target_id}`}
+                    key={candidate.id}
                     className="accuracy-graph-edge"
-                    onClick={() => setSelectedCandidate(buildGraphReviewCandidate(
-                      edge,
-                      "legacy-only",
-                      payload.claims,
-                      payload.evidence_spans,
-                    ))}
+                    onClick={() => selectCandidate(candidate)}
                   >
-                    <b>{readableId(edge.source_id)} {edge.relationship.toLowerCase()} {readableId(edge.target_id)}</b>
-                    <small>Source chunk {edge.source_chunk_id || "not recorded"}</small>
+                    <b>{candidate.label}</b>
+                    <small>{candidate.status}</small>
+                    <em>{reviewStateLabel(candidate.reviewState)}</em>
                   </button>
                 ))
               ) : (
-                <small>No legacy-only edges found.</small>
+                <small>No legacy-only edges match this filter.</small>
               )}
             </section>
           </div>
@@ -191,6 +242,14 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
               <h4>{selectedCandidate.label}</h4>
             </div>
             <span>{selectedCandidate.status}</span>
+            <div className="accuracy-review-state">
+              <strong>{reviewStateLabel(selectedCandidate.reviewState)}</strong>
+              <div>
+                <button onClick={() => setCandidateReviewState(selectedCandidate, "needs_review")}>Mark needs review</button>
+                <button onClick={() => setCandidateReviewState(selectedCandidate, "accepted")}>Mark accepted</button>
+                <button onClick={() => setCandidateReviewState(selectedCandidate, "ignored")}>Mark ignored</button>
+              </div>
+            </div>
             <p>{selectedCandidate.summary}</p>
             <blockquote>{selectedCandidate.evidence}</blockquote>
             <small>{selectedCandidate.action}</small>

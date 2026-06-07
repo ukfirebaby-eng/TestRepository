@@ -1,14 +1,19 @@
 import type { AccuracyClaim, AccuracyEvidenceSpan, AccuracyGraphAgreementEdge } from "../api/types";
 
 export type GraphReviewCandidateKind = "claim-only" | "legacy-only";
+export type GraphReviewState = "needs_review" | "accepted" | "ignored";
+export type GraphReviewFilter = "all" | GraphReviewState;
+export type GraphReviewStateMap = Record<string, GraphReviewState>;
 
 export type GraphReviewCandidate = {
+  id: string;
   kind: GraphReviewCandidateKind;
   label: string;
   status: string;
   summary: string;
   evidence: string;
   action: string;
+  reviewState: GraphReviewState;
 };
 
 function readableId(value: string) {
@@ -28,6 +33,20 @@ function spanText(edge: AccuracyGraphAgreementEdge, spans: AccuracyEvidenceSpan[
     .join(" ");
 }
 
+export function reviewCandidateKey(edge: AccuracyGraphAgreementEdge, kind: GraphReviewCandidateKind): string {
+  return `${kind}:${edge.canonical_source_id || edge.source_id}:${edge.relationship}:${edge.canonical_target_id || edge.target_id}`;
+}
+
+export function filterReviewCandidates(
+  candidates: GraphReviewCandidate[],
+  states: GraphReviewStateMap,
+  filter: GraphReviewFilter,
+): GraphReviewCandidate[] {
+  return candidates
+    .map((candidate) => ({ ...candidate, reviewState: states[candidate.id] || candidate.reviewState }))
+    .filter((candidate) => filter === "all" || candidate.reviewState === filter);
+}
+
 export function buildGraphReviewCandidate(
   edge: AccuracyGraphAgreementEdge,
   kind: GraphReviewCandidateKind,
@@ -36,11 +55,16 @@ export function buildGraphReviewCandidate(
 ): GraphReviewCandidate {
   const claim = edge.claim_id ? claims.find((item) => item.claim_id === edge.claim_id) : undefined;
   const evidence = claim?.source_quote || spanText(edge, spans);
+  const base = {
+    id: reviewCandidateKey(edge, kind),
+    kind,
+    label: edgeLabel(edge),
+    reviewState: "needs_review" as const,
+  };
 
   if (kind === "claim-only") {
     return {
-      kind,
-      label: edgeLabel(edge),
+      ...base,
       status: "Claim-backed, not in legacy graph",
       summary: "A validated claim produced this relationship, but the legacy graph extraction did not produce the same canonical edge.",
       evidence: evidence || "The claim is recorded, but no source quote is available in this payload.",
@@ -49,8 +73,7 @@ export function buildGraphReviewCandidate(
   }
 
   return {
-    kind,
-    label: edgeLabel(edge),
+    ...base,
     status: "Legacy graph only",
     summary: "The legacy graph extraction produced this relationship, but no matching validated claim currently backs it.",
     evidence: evidence || "No validated claim evidence is linked to this edge yet.",
