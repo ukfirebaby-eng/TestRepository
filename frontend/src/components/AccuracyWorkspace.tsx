@@ -4,6 +4,7 @@ import type { AccuracyPayload } from "../api/types";
 import {
   buildGraphReviewCandidate,
   filterReviewCandidates,
+  reportUseLabel,
   type GraphReviewCandidate,
   type GraphReviewFilter,
   type GraphReviewState,
@@ -90,12 +91,21 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
   };
 
   function selectCandidate(candidate: GraphReviewCandidate) {
-    setSelectedCandidate({ ...candidate, reviewState: reviewStates[candidate.id] || candidate.reviewState });
+    const nextState = reviewStates[candidate.id] || candidate.reviewState;
+    setSelectedCandidate({
+      ...candidate,
+      reviewState: nextState,
+      reportUse: reportUseLabel(candidate.kind, nextState),
+    });
   }
 
   async function setCandidateReviewState(candidate: GraphReviewCandidate, nextState: GraphReviewState) {
     setReviewStates((current) => ({ ...current, [candidate.id]: nextState }));
-    setSelectedCandidate({ ...candidate, reviewState: nextState });
+    setSelectedCandidate({
+      ...candidate,
+      reviewState: nextState,
+      reportUse: reportUseLabel(candidate.kind, nextState),
+    });
     const result = await saveAccuracyReviewDecision(documentId, {
       candidate_id: candidate.id,
       state: nextState,
@@ -230,7 +240,7 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
                   >
                     <b>{candidate.label}</b>
                     <small>{candidate.status}</small>
-                    <em>{reviewStateLabel(candidate.reviewState)}</em>
+                    <em>{reviewStateLabel(candidate.reviewState)} · {candidate.reportUse}</em>
                   </button>
                 ))
               ) : (
@@ -248,7 +258,7 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
                   >
                     <b>{candidate.label}</b>
                     <small>{candidate.status}</small>
-                    <em>{reviewStateLabel(candidate.reviewState)}</em>
+                    <em>{reviewStateLabel(candidate.reviewState)} · {candidate.reportUse}</em>
                   </button>
                 ))
               ) : (
@@ -273,6 +283,7 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
               </div>
             </div>
             <p>{selectedCandidate.summary}</p>
+            <p><strong>{selectedCandidate.reportUse}</strong></p>
             <blockquote>{selectedCandidate.evidence}</blockquote>
             <small>{selectedCandidate.action}</small>
           </aside>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGraphReviewCandidate, filterReviewCandidates, reviewCandidateKey } from "./accuracyReview";
+import { buildGraphReviewCandidate, filterReviewCandidates, reportUseLabel, reviewCandidateKey } from "./accuracyReview";
 import type { AccuracyClaim, AccuracyEvidenceSpan, AccuracyGraphAgreementEdge } from "../api/types";
 
 const claimOnlyEdge: AccuracyGraphAgreementEdge = {
@@ -59,6 +59,7 @@ describe("buildGraphReviewCandidate", () => {
 
     expect(candidate.label).toBe("cloud migration requires security certification");
     expect(candidate.status).toBe("Claim-backed, not in legacy graph");
+    expect(candidate.reportUse).toBe("Review before reports");
     expect(candidate.evidence).toContain("Cloud migration requires Security certification before launch.");
     expect(candidate.action).toContain("Check whether the legacy extraction missed this relationship");
   });
@@ -82,11 +83,22 @@ describe("buildGraphReviewCandidate", () => {
     expect(claimOnly.id).toBe("claim-only:entity_cloud_migration:REQUIRES:entity_security_certification");
     expect(legacyOnly.reviewState).toBe("needs_review");
     expect(filterReviewCandidates([claimOnly, legacyOnly], states, "accepted")).toEqual([
-      { ...claimOnly, reviewState: "accepted" },
+      { ...claimOnly, reviewState: "accepted", reportUse: "Used in reports" },
     ]);
     expect(filterReviewCandidates([claimOnly, legacyOnly], states, "all").map((candidate) => candidate.reviewState)).toEqual([
       "accepted",
       "ignored",
     ]);
+    expect(filterReviewCandidates([claimOnly, legacyOnly], states, "all").map((candidate) => candidate.reportUse)).toEqual([
+      "Used in reports",
+      "Excluded from reports",
+    ]);
+  });
+
+  it("labels report use from candidate kind and review state", () => {
+    expect(reportUseLabel("claim-only", "accepted")).toBe("Used in reports");
+    expect(reportUseLabel("legacy-only", "accepted")).toBe("Human-confirmed, claim-unbacked");
+    expect(reportUseLabel("claim-only", "ignored")).toBe("Excluded from reports");
+    expect(reportUseLabel("legacy-only", "needs_review")).toBe("Review before reports");
   });
 });

@@ -516,8 +516,10 @@ test.describe("Diamond Miner app-v2", () => {
 
     await page.getByRole("button", { name: "Mark accepted" }).click();
     await expect(page.locator(".accuracy-review-detail")).toContainText("Accepted");
+    await expect(page.locator(".accuracy-review-detail")).toContainText("Used in reports");
     await page.getByRole("button", { name: /Accepted 1/ }).click();
     await expect(page.locator(".accuracy-graph-candidates")).toContainText(/cloud migration requires security certification/i);
+    await expect(page.locator(".accuracy-graph-candidates")).toContainText("Used in reports");
     await page.getByRole("button", { name: /Ignored 0/ }).click();
     await expect(page.locator(".accuracy-graph-candidates")).toContainText("No claim-only edges match this filter.");
 
@@ -525,8 +527,10 @@ test.describe("Diamond Miner app-v2", () => {
     const legacyCandidate = page.locator(".accuracy-graph-edge", { hasText: "legacy gateway depends_on customer portal" });
     await legacyCandidate.click();
     await page.getByRole("button", { name: "Mark ignored" }).click();
+    await expect(page.locator(".accuracy-review-detail")).toContainText("Excluded from reports");
     await page.getByRole("button", { name: /Ignored 1/ }).click();
     await expect(page.locator(".accuracy-graph-candidates")).toContainText("legacy gateway depends_on customer portal");
+    await expect(page.locator(".accuracy-graph-candidates")).toContainText("Excluded from reports");
 
     await page.reload();
     await expect(page.getByText("COMMAND CENTER")).toBeVisible();

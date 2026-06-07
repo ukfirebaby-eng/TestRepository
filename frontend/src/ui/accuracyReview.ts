@@ -14,6 +14,7 @@ export type GraphReviewCandidate = {
   evidence: string;
   action: string;
   reviewState: GraphReviewState;
+  reportUse: string;
 };
 
 function readableId(value: string) {
@@ -43,8 +44,18 @@ export function filterReviewCandidates(
   filter: GraphReviewFilter,
 ): GraphReviewCandidate[] {
   return candidates
-    .map((candidate) => ({ ...candidate, reviewState: states[candidate.id] || candidate.reviewState }))
+    .map((candidate) => {
+      const reviewState = states[candidate.id] || candidate.reviewState;
+      return { ...candidate, reviewState, reportUse: reportUseLabel(candidate.kind, reviewState) };
+    })
     .filter((candidate) => filter === "all" || candidate.reviewState === filter);
+}
+
+export function reportUseLabel(kind: GraphReviewCandidateKind, state: GraphReviewState) {
+  if (state === "ignored") return "Excluded from reports";
+  if (kind === "claim-only" && state === "accepted") return "Used in reports";
+  if (kind === "legacy-only" && state === "accepted") return "Human-confirmed, claim-unbacked";
+  return "Review before reports";
 }
 
 export function buildGraphReviewCandidate(
@@ -60,6 +71,7 @@ export function buildGraphReviewCandidate(
     kind,
     label: edgeLabel(edge),
     reviewState: edge.review_state || "needs_review" as const,
+    reportUse: reportUseLabel(kind, edge.review_state || "needs_review"),
   };
 
   if (kind === "claim-only") {

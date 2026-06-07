@@ -102,6 +102,14 @@ class TestReportGrounding:
                 "label": "api gateway blocks deployment",
                 "updated_at": "2026-06-07T12:00:00Z",
             },
+            "legacy-only:entity_legacy_gateway:DEPENDS_ON:entity_customer_portal": {
+                "document_id": "doc_abc",
+                "candidate_id": "legacy-only:entity_legacy_gateway:DEPENDS_ON:entity_customer_portal",
+                "state": "ignored",
+                "kind": "legacy-only",
+                "label": "legacy gateway depends on customer portal",
+                "updated_at": "2026-06-07T12:01:00Z",
+            },
         }
         agreement = {
             "claim_only_edge_count": 1,
@@ -111,7 +119,17 @@ class TestReportGrounding:
                 "source_id": "entity_api_gateway",
                 "target_id": "entity_deployment",
                 "relationship": "BLOCKS",
+                "canonical_source_id": "entity_api_gateway",
+                "canonical_target_id": "entity_deployment",
                 "review_state": "accepted",
+            }],
+            "legacy_only_edges": [{
+                "source_id": "entity_legacy_gateway",
+                "target_id": "entity_customer_portal",
+                "relationship": "DEPENDS_ON",
+                "canonical_source_id": "entity_legacy_gateway",
+                "canonical_target_id": "entity_customer_portal",
+                "review_state": "ignored",
             }],
         }
 
@@ -122,6 +140,34 @@ class TestReportGrounding:
         context = raw["accuracy_review_context"]
         assert context["review_decisions"][0]["state"] == "accepted"
         assert context["graph_agreement"] == agreement
+        assert context["report_guidance"]["supporting_evidence_candidate_ids"] == [
+            "claim-only:entity_api_gateway:BLOCKS:entity_deployment"
+        ]
+        assert context["report_guidance"]["excluded_candidate_ids"] == [
+            "legacy-only:entity_legacy_gateway:DEPENDS_ON:entity_customer_portal"
+        ]
+        assert context["report_guidance"]["candidate_guidance"][0]["report_use"] == "supporting_evidence"
+        assert context["report_guidance"]["candidate_guidance"][1]["report_use"] == "excluded"
+
+    def test_attach_report_grounding_carries_review_guidance_summary(self):
+        guidance = {
+            "supporting_evidence_candidate_ids": ["claim-only:entity_api_gateway:BLOCKS:entity_deployment"],
+            "excluded_candidate_ids": ["legacy-only:entity_legacy_gateway:DEPENDS_ON:entity_customer_portal"],
+            "human_confirmed_legacy_candidate_ids": [],
+            "active_review_candidate_ids": [],
+            "candidate_guidance": [],
+        }
+        raw_issues = {
+            "friction_lines": [],
+            "chronological_friction_lines": [],
+            "hub_vulnerabilities": [],
+            "risk_matrix": [],
+            "accuracy_review_context": {"report_guidance": guidance},
+        }
+
+        grounded = _attach_report_grounding(_minimal_report(), raw_issues)
+
+        assert grounded["review_guidance_summary"] == guidance
 
     def test_attach_report_grounding_adds_summary_and_issue_metadata(self):
         report = {

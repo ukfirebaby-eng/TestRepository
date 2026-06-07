@@ -217,6 +217,7 @@ def _gather_raw_issues(document_id: str) -> dict:
         "accuracy_review_context": {
             "review_decisions": list(review_decisions.values()),
             "graph_agreement": graph_agreement,
+            "report_guidance": _build_accuracy_report_guidance(review_decisions, graph_agreement),
         },
     }
 
@@ -265,6 +266,70 @@ def _with_issue_grounding(issue: Dict[str, Any]) -> Dict[str, Any]:
     if not grounding:
         return issue
     return {**issue, "grounding": grounding}
+
+
+def _report_candidate_id(kind: str, edge: Dict[str, Any]) -> str:
+    source_id = edge.get("canonical_source_id") or edge.get("source_id") or ""
+    target_id = edge.get("canonical_target_id") or edge.get("target_id") or ""
+    relationship = str(edge.get("relationship") or "").strip().upper()
+    return f"{kind}:{source_id}:{relationship}:{target_id}"
+
+
+def _report_candidate_label(candidate_id: str, decisions: Dict[str, Dict[str, Any]]) -> str:
+    decision = decisions.get(candidate_id, {})
+    return str(decision.get("label") or candidate_id).strip()
+
+
+def _report_use_for(kind: str, state: str) -> str:
+    if state == "ignored":
+        return "excluded"
+    if kind == "claim-only" and state == "accepted":
+        return "supporting_evidence"
+    if kind == "legacy-only" and state == "accepted":
+        return "human_confirmed_claim_unbacked"
+    return "requires_review"
+
+
+def _build_accuracy_report_guidance(
+    review_decisions: Dict[str, Dict[str, Any]],
+    graph_agreement: Dict[str, Any],
+) -> Dict[str, Any]:
+    candidate_guidance = []
+    for kind, edge_key in [
+        ("claim-only", "claim_only_edges"),
+        ("legacy-only", "legacy_only_edges"),
+    ]:
+        for edge in graph_agreement.get(edge_key, []):
+            if not isinstance(edge, dict):
+                continue
+            candidate_id = _report_candidate_id(kind, edge)
+            state = str(edge.get("review_state") or review_decisions.get(candidate_id, {}).get("state") or "needs_review")
+            report_use = _report_use_for(kind, state)
+            candidate_guidance.append({
+                "candidate_id": candidate_id,
+                "kind": kind,
+                "state": state,
+                "label": _report_candidate_label(candidate_id, review_decisions),
+                "report_use": report_use,
+            })
+
+    return {
+        "supporting_evidence_candidate_ids": [
+            item["candidate_id"] for item in candidate_guidance if item["report_use"] == "supporting_evidence"
+        ],
+        "excluded_candidate_ids": [
+            item["candidate_id"] for item in candidate_guidance if item["report_use"] == "excluded"
+        ],
+        "human_confirmed_legacy_candidate_ids": [
+            item["candidate_id"]
+            for item in candidate_guidance
+            if item["report_use"] == "human_confirmed_claim_unbacked"
+        ],
+        "active_review_candidate_ids": [
+            item["candidate_id"] for item in candidate_guidance if item["report_use"] == "requires_review"
+        ],
+        "candidate_guidance": candidate_guidance,
+    }
 
 
 def _flat_groundings(raw_issues: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -326,11 +391,19 @@ def _grounding_summary(groundings: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def _attach_report_grounding(report: Dict[str, Any], raw_issues: Dict[str, Any]) -> Dict[str, Any]:
     """Adds deterministic evidence provenance to generated reports."""
+    grounded_report = dict(report)
+    review_guidance = (
+        raw_issues.get("accuracy_review_context", {}).get("report_guidance")
+        if isinstance(raw_issues.get("accuracy_review_context"), dict)
+        else None
+    )
+    if isinstance(review_guidance, dict):
+        grounded_report["review_guidance_summary"] = review_guidance
+
     groundings = _flat_groundings(raw_issues)
     if not groundings:
-        return report
+        return grounded_report
 
-    grounded_report = dict(report)
     grounded_report["grounding_summary"] = _grounding_summary(groundings)
     if isinstance(report.get("issues"), list):
         grounded_issues = []

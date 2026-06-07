@@ -120,6 +120,10 @@ class TestStorytellerAgent:
                 "kind": "claim-only",
                 "label": "api gateway blocks deployment",
             }],
+            "report_guidance": {
+                "supporting_evidence_candidate_ids": ["claim-only:entity_api_gateway:BLOCKS:entity_deployment"],
+                "excluded_candidate_ids": ["legacy-only:entity_legacy_gateway:DEPENDS_ON:entity_customer_portal"],
+            },
             "graph_agreement": {
                 "accepted_claim_only_edge_count": 1,
                 "ignored_legacy_only_edge_count": 1,
@@ -133,8 +137,9 @@ class TestStorytellerAgent:
         system_prompt = messages[0]["content"]
         assert "claim IDs" in system_prompt
         assert "evidence span IDs" in system_prompt
-        assert "accepted claim-only relationships" in system_prompt
-        assert "ignored relationships" in system_prompt
+        assert "accuracy_review_context.report_guidance" in system_prompt
+        assert "supporting_evidence_candidate_ids" in system_prompt
+        assert "excluded_candidate_ids" in system_prompt
 
     def test_zero_issues_returns_no_issues_found_report(self):
         from core.agents import StorytellerAgent
