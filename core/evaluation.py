@@ -348,8 +348,31 @@ def _canonical_graph_edge_signature(edge: Dict[str, Any]) -> tuple[str, str, str
     )
 
 
-def _graph_edge_sample(edge: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+def _graph_review_candidate_id(kind: str, signature: tuple[str, str, str]) -> str:
+    source_id, relationship, target_id = signature
+    return f"{kind}:{source_id}:{relationship}:{target_id}"
+
+
+def _graph_review_state(
+    decisions: Dict[str, Dict[str, Any]],
+    kind: str,
+    signature: tuple[str, str, str],
+) -> str | None:
+    decision = decisions.get(_graph_review_candidate_id(kind, signature), {})
+    state = str(decision.get("state") or "").strip()
+    return state or None
+
+
+def _accuracy_review_decisions(vault: Any, document_id: str) -> Dict[str, Dict[str, Any]]:
+    list_decisions = getattr(vault, "list_accuracy_review_decisions", None)
+    if not callable(list_decisions):
+        return {}
+    decisions = list_decisions(document_id)
+    return decisions if isinstance(decisions, dict) else {}
+
+
+def _graph_edge_sample(edge: Dict[str, Any], review_state: str | None = None) -> Dict[str, Any]:
+    sample = {
         "source_id": edge.get("source_id"),
         "target_id": edge.get("target_id"),
         "relationship": str(edge.get("relationship", "")).strip().upper(),
@@ -359,6 +382,9 @@ def _graph_edge_sample(edge: Dict[str, Any]) -> Dict[str, Any]:
         "claim_id": edge.get("claim_id"),
         "evidence_span_ids": edge.get("evidence_span_ids", []),
     }
+    if review_state:
+        sample["review_state"] = review_state
+    return sample
 
 
 def collect_parallel_graph_metrics(vault: Any, document_id: str) -> Dict[str, Any]:
@@ -400,6 +426,33 @@ def collect_parallel_graph_agreement(vault: Any, document_id: str) -> Dict[str, 
     shared_signatures = legacy_signatures & claim_signatures
     legacy_only_signatures = sorted(legacy_signatures - claim_signatures)
     claim_only_signatures = sorted(claim_signatures - legacy_signatures)
+    decisions = _accuracy_review_decisions(vault, document_id)
+    legacy_review_states = {
+        signature: _graph_review_state(decisions, "legacy-only", signature)
+        for signature in legacy_only_signatures
+    }
+    claim_review_states = {
+        signature: _graph_review_state(decisions, "claim-only", signature)
+        for signature in claim_only_signatures
+    }
+    accepted_claim_only_count = sum(
+        1 for state in claim_review_states.values() if state == "accepted"
+    )
+    ignored_claim_only_count = sum(
+        1 for state in claim_review_states.values() if state == "ignored"
+    )
+    accepted_legacy_only_count = sum(
+        1 for state in legacy_review_states.values() if state == "accepted"
+    )
+    ignored_legacy_only_count = sum(
+        1 for state in legacy_review_states.values() if state == "ignored"
+    )
+    active_claim_only_count = sum(
+        1 for state in claim_review_states.values() if state not in {"accepted", "ignored"}
+    )
+    active_legacy_only_count = sum(
+        1 for state in legacy_review_states.values() if state not in {"accepted", "ignored"}
+    )
 
     return {
         "legacy_edge_count": len(legacy_edges),
@@ -407,15 +460,28 @@ def collect_parallel_graph_agreement(vault: Any, document_id: str) -> Dict[str, 
         "shared_canonical_edge_count": len(shared_signatures),
         "legacy_only_edge_count": len(legacy_only_signatures),
         "claim_only_edge_count": len(claim_only_signatures),
+        "accepted_claim_only_edge_count": accepted_claim_only_count,
+        "ignored_claim_only_edge_count": ignored_claim_only_count,
+        "accepted_legacy_only_edge_count": accepted_legacy_only_count,
+        "ignored_legacy_only_edge_count": ignored_legacy_only_count,
+        "active_claim_only_edge_count": active_claim_only_count,
+        "active_legacy_only_edge_count": active_legacy_only_count,
+        "human_promoted_edge_count": accepted_claim_only_count,
         "claim_vs_legacy_overlap_rate": round(len(shared_signatures) / len(claim_signatures), 4)
         if claim_signatures
         else 1.0,
         "legacy_only_edges": [
-            _graph_edge_sample(legacy_by_signature[signature])
+            _graph_edge_sample(
+                legacy_by_signature[signature],
+                legacy_review_states.get(signature),
+            )
             for signature in legacy_only_signatures[:10]
         ],
         "claim_only_edges": [
-            _graph_edge_sample(claim_by_signature[signature])
+            _graph_edge_sample(
+                claim_by_signature[signature],
+                claim_review_states.get(signature),
+            )
             for signature in claim_only_signatures[:10]
         ],
     }

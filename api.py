@@ -207,11 +207,17 @@ def _gather_raw_issues(document_id: str) -> dict:
         _with_issue_grounding(line)
         for line in vault.get_chronological_friction_lines(document_id)
     ]
+    review_decisions = vault.list_accuracy_review_decisions(document_id)
+    graph_agreement = collect_parallel_graph_agreement(vault, document_id)
     return {
         "friction_lines": friction_lines,
         "chronological_friction_lines": chronological_friction_lines,
         "hub_vulnerabilities": vault.get_hub_vulnerabilities(document_id),
         "risk_matrix": vault.get_risk_matrix_data(document_id),
+        "accuracy_review_context": {
+            "review_decisions": list(review_decisions.values()),
+            "graph_agreement": graph_agreement,
+        },
     }
 
 
@@ -389,6 +395,36 @@ def _build_accuracy_quality(
     needs_review = sum(1 for item in validation_results if item.get("status") == "needs_review")
     failed = sum(1 for item in validation_results if item.get("status") == "failed")
     promotable = sum(1 for item in validation_results if item.get("can_promote"))
+    human_accepted_claim_only_edges = int(graph_agreement.get("accepted_claim_only_edge_count", 0) or 0)
+    effective_promotable = promotable + human_accepted_claim_only_edges
+    review_adjusted_denominator = validation_count + int(graph_agreement.get("claim_only_edge_count", 0) or 0)
+    active_mismatch_count = (
+        int(graph_agreement.get("active_claim_only_edge_count", 0) or 0)
+        + int(graph_agreement.get("active_legacy_only_edge_count", 0) or 0)
+    )
+    accepted_mismatch_count = (
+        human_accepted_claim_only_edges
+        + int(graph_agreement.get("accepted_legacy_only_edge_count", 0) or 0)
+    )
+    ignored_mismatch_count = (
+        int(graph_agreement.get("ignored_claim_only_edge_count", 0) or 0)
+        + int(graph_agreement.get("ignored_legacy_only_edge_count", 0) or 0)
+    )
+    review_adjusted_overlap_denominator = (
+        int(graph_agreement.get("shared_canonical_edge_count", 0) or 0)
+        + human_accepted_claim_only_edges
+        + active_mismatch_count
+    )
+    review_adjusted_overlap_rate = _ratio(
+        int(graph_agreement.get("shared_canonical_edge_count", 0) or 0)
+        + human_accepted_claim_only_edges,
+        review_adjusted_overlap_denominator,
+    )
+    confidence_level = (
+        "high" if review_adjusted_overlap_rate >= 0.85
+        else "medium" if review_adjusted_overlap_rate >= 0.65
+        else "low"
+    )
     reason_counts = Counter(
         reason
         for item in validation_results
@@ -415,6 +451,10 @@ def _build_accuracy_quality(
         "promotion_readiness": {
             "promotable": promotable,
             "promotion_rate": _ratio(promotable, validation_count),
+            "human_accepted_claim_only_edges": human_accepted_claim_only_edges,
+            "effective_promotable": effective_promotable,
+            "review_adjusted_denominator": review_adjusted_denominator,
+            "effective_promotion_rate": _ratio(effective_promotable, review_adjusted_denominator),
         },
         "entity_normalization": {
             "canonical_entities": len(canonical_entities),
@@ -422,6 +462,13 @@ def _build_accuracy_quality(
             "average_aliases_per_entity": _ratio(raw_aliases, len(canonical_entities)),
         },
         "graph_agreement": graph_agreement,
+        "report_confidence": {
+            "active_mismatch_count": active_mismatch_count,
+            "accepted_mismatch_count": accepted_mismatch_count,
+            "ignored_mismatch_count": ignored_mismatch_count,
+            "review_adjusted_overlap_rate": review_adjusted_overlap_rate,
+            "confidence_level": confidence_level,
+        },
         "top_review_reasons": [
             {"reason": reason, "count": count}
             for reason, count in reason_counts.most_common(5)

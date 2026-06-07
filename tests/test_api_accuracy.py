@@ -301,6 +301,20 @@ def test_accuracy_payload_includes_claim_quality_report(client):
         source_chunk_id="claim_layer",
         document_id="doc_quality",
     )
+    vault.save_accuracy_review_decision(
+        document_id="doc_quality",
+        candidate_id="claim-only:entity_claim_only_source:REQUIRES:entity_claim_only_target",
+        state="accepted",
+        kind="claim-only",
+        label="claim only source requires claim only target",
+    )
+    vault.save_accuracy_review_decision(
+        document_id="doc_quality",
+        candidate_id="legacy-only:entity_legacy_only_source:BLOCKS:entity_legacy_only_target",
+        state="ignored",
+        kind="legacy-only",
+        label="legacy only source blocks legacy only target",
+    )
 
     response = test_client.get("/api/v1/accuracy/doc_quality")
 
@@ -323,6 +337,10 @@ def test_accuracy_payload_includes_claim_quality_report(client):
         "promotion_readiness": {
             "promotable": 1,
             "promotion_rate": 0.5,
+            "human_accepted_claim_only_edges": 1,
+            "effective_promotable": 2,
+            "review_adjusted_denominator": 3,
+            "effective_promotion_rate": 0.6667,
         },
         "entity_normalization": {
             "canonical_entities": 2,
@@ -335,6 +353,13 @@ def test_accuracy_payload_includes_claim_quality_report(client):
             "shared_canonical_edge_count": 1,
             "legacy_only_edge_count": 1,
             "claim_only_edge_count": 1,
+            "accepted_claim_only_edge_count": 1,
+            "ignored_claim_only_edge_count": 0,
+            "accepted_legacy_only_edge_count": 0,
+            "ignored_legacy_only_edge_count": 1,
+            "active_claim_only_edge_count": 0,
+            "active_legacy_only_edge_count": 0,
+            "human_promoted_edge_count": 1,
             "claim_vs_legacy_overlap_rate": 0.5,
             "legacy_only_edges": [
                 {
@@ -346,6 +371,7 @@ def test_accuracy_payload_includes_claim_quality_report(client):
                     "source_chunk_id": "legacy_chunk",
                     "claim_id": None,
                     "evidence_span_ids": [],
+                    "review_state": "ignored",
                 }
             ],
             "claim_only_edges": [
@@ -358,8 +384,16 @@ def test_accuracy_payload_includes_claim_quality_report(client):
                     "source_chunk_id": "claim_layer",
                     "claim_id": "claim_2",
                     "evidence_span_ids": ["span_2"],
+                    "review_state": "accepted",
                 }
             ],
+        },
+        "report_confidence": {
+            "active_mismatch_count": 0,
+            "accepted_mismatch_count": 1,
+            "ignored_mismatch_count": 1,
+            "review_adjusted_overlap_rate": 1.0,
+            "confidence_level": "high",
         },
         "top_review_reasons": [
             {"reason": "claim certainty is not explicit", "count": 1},

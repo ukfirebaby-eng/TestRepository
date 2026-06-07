@@ -21,6 +21,7 @@ def _make_mock_vault(doc_exists=True, cached_report=None):
     mock_vault.get_chronological_friction_lines.return_value = []
     mock_vault.get_hub_vulnerabilities.return_value = []
     mock_vault.get_risk_matrix_data.return_value = []
+    mock_vault.list_accuracy_review_decisions.return_value = {}
     return mock_vault
 
 
@@ -89,6 +90,38 @@ class TestReportGrounding:
         assert grounding["claim_ids"] == ["claim_1"]
         assert grounding["evidence_span_ids"] == ["span_1", "span_2"]
         assert grounding["evidence_basis"] == "validated_claims"
+
+    def test_gather_raw_issues_adds_accuracy_review_context_for_reports(self):
+        mock_vault = _make_mock_vault()
+        mock_vault.list_accuracy_review_decisions.return_value = {
+            "claim-only:entity_api_gateway:BLOCKS:entity_deployment": {
+                "document_id": "doc_abc",
+                "candidate_id": "claim-only:entity_api_gateway:BLOCKS:entity_deployment",
+                "state": "accepted",
+                "kind": "claim-only",
+                "label": "api gateway blocks deployment",
+                "updated_at": "2026-06-07T12:00:00Z",
+            },
+        }
+        agreement = {
+            "claim_only_edge_count": 1,
+            "accepted_claim_only_edge_count": 1,
+            "active_claim_only_edge_count": 0,
+            "claim_only_edges": [{
+                "source_id": "entity_api_gateway",
+                "target_id": "entity_deployment",
+                "relationship": "BLOCKS",
+                "review_state": "accepted",
+            }],
+        }
+
+        with patch("api.vault", mock_vault), \
+             patch("api.collect_parallel_graph_agreement", return_value=agreement):
+            raw = _gather_raw_issues("doc_abc")
+
+        context = raw["accuracy_review_context"]
+        assert context["review_decisions"][0]["state"] == "accepted"
+        assert context["graph_agreement"] == agreement
 
     def test_attach_report_grounding_adds_summary_and_issue_metadata(self):
         report = {

@@ -171,6 +171,10 @@ const mockAccuracyPayload = {
     promotion_readiness: {
       promotable: 1,
       promotion_rate: 0.5,
+      human_accepted_claim_only_edges: 0,
+      effective_promotable: 1,
+      review_adjusted_denominator: 3,
+      effective_promotion_rate: 0.3333,
     },
     entity_normalization: {
       canonical_entities: 3,
@@ -183,6 +187,13 @@ const mockAccuracyPayload = {
       shared_canonical_edge_count: 1,
       legacy_only_edge_count: 1,
       claim_only_edge_count: 1,
+      accepted_claim_only_edge_count: 0,
+      ignored_claim_only_edge_count: 0,
+      accepted_legacy_only_edge_count: 0,
+      ignored_legacy_only_edge_count: 0,
+      active_claim_only_edge_count: 1,
+      active_legacy_only_edge_count: 1,
+      human_promoted_edge_count: 0,
       claim_vs_legacy_overlap_rate: 0.5,
       legacy_only_edges: [
         {
@@ -207,6 +218,13 @@ const mockAccuracyPayload = {
           evidence_span_ids: ["span_1"],
         },
       ],
+    },
+    report_confidence: {
+      active_mismatch_count: 2,
+      accepted_mismatch_count: 0,
+      ignored_mismatch_count: 0,
+      review_adjusted_overlap_rate: 0.3333,
+      confidence_level: "low",
     },
     top_review_reasons: [{ reason: "ambiguous blocker wording", count: 1 }],
   },

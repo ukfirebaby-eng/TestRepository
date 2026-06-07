@@ -276,6 +276,7 @@ export type AccuracyGraphAgreementEdge = {
   source_chunk_id: string;
   claim_id?: string | null;
   evidence_span_ids: string[];
+  review_state?: AccuracyReviewState;
 };
 
 export type AccuracyReviewState = "needs_review" | "accepted" | "ignored";
@@ -317,6 +318,10 @@ export type AccuracyQuality = {
   promotion_readiness: {
     promotable: number;
     promotion_rate: number;
+    human_accepted_claim_only_edges: number;
+    effective_promotable: number;
+    review_adjusted_denominator: number;
+    effective_promotion_rate: number;
   };
   entity_normalization: {
     canonical_entities: number;
@@ -329,9 +334,23 @@ export type AccuracyQuality = {
     shared_canonical_edge_count: number;
     legacy_only_edge_count: number;
     claim_only_edge_count: number;
+    accepted_claim_only_edge_count: number;
+    ignored_claim_only_edge_count: number;
+    accepted_legacy_only_edge_count: number;
+    ignored_legacy_only_edge_count: number;
+    active_claim_only_edge_count: number;
+    active_legacy_only_edge_count: number;
+    human_promoted_edge_count: number;
     claim_vs_legacy_overlap_rate: number;
     legacy_only_edges: AccuracyGraphAgreementEdge[];
     claim_only_edges: AccuracyGraphAgreementEdge[];
+  };
+  report_confidence: {
+    active_mismatch_count: number;
+    accepted_mismatch_count: number;
+    ignored_mismatch_count: number;
+    review_adjusted_overlap_rate: number;
+    confidence_level: "high" | "medium" | "low";
   };
   top_review_reasons: Array<{
     reason: string;

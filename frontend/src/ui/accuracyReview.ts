@@ -59,7 +59,7 @@ export function buildGraphReviewCandidate(
     id: reviewCandidateKey(edge, kind),
     kind,
     label: edgeLabel(edge),
-    reviewState: "needs_review" as const,
+    reviewState: edge.review_state || "needs_review" as const,
   };
 
   if (kind === "claim-only") {

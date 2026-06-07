@@ -364,7 +364,8 @@ RULES:
 3. Use "issue" not "paradox" or "diamond".
 4. Use British English spelling and conventions throughout (e.g. "organisation", "recognised", "programme").
 5. When raw issues include claim IDs or evidence span IDs, use them as grounding metadata, preserve those identifiers in the issue output where possible, and make uncertainty clear for legacy-only or needs-review items.
-6. Return ONLY valid JSON matching the schema below. No markdown, no preamble.
+6. When raw issues include accuracy_review_context, treat accepted claim-only relationships as human-approved evidence, treat ignored relationships as excluded or low-confidence evidence, and do not present ignored mismatch candidates as confirmed risks.
+7. Return ONLY valid JSON matching the schema below. No markdown, no preamble.
 
 OUTPUT SCHEMA:
 {

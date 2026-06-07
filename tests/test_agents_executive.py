@@ -113,6 +113,18 @@ class TestStorytellerAgent:
             "claim_validation_status": "passed",
             "graph_agreement": "shared",
         }
+        raw["accuracy_review_context"] = {
+            "review_decisions": [{
+                "candidate_id": "claim-only:entity_api_gateway:BLOCKS:entity_deployment",
+                "state": "accepted",
+                "kind": "claim-only",
+                "label": "api gateway blocks deployment",
+            }],
+            "graph_agreement": {
+                "accepted_claim_only_edge_count": 1,
+                "ignored_legacy_only_edge_count": 1,
+            },
+        }
 
         with patch("core.agents._get_client", return_value=mock_client):
             agent.run(raw)
@@ -121,6 +133,8 @@ class TestStorytellerAgent:
         system_prompt = messages[0]["content"]
         assert "claim IDs" in system_prompt
         assert "evidence span IDs" in system_prompt
+        assert "accepted claim-only relationships" in system_prompt
+        assert "ignored relationships" in system_prompt
 
     def test_zero_issues_returns_no_issues_found_report(self):
         from core.agents import StorytellerAgent

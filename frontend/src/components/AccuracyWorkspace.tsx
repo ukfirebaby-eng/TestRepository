@@ -102,7 +102,9 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
       kind: candidate.kind,
       label: candidate.label,
     });
-    setReviewStates(result.review_states);
+    const refreshed = await loadAccuracyPayload(documentId);
+    setPayload(refreshed);
+    setReviewStates(refreshed.review_states || result.review_states);
   }
 
   return (
@@ -137,7 +139,7 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
             <p className="eyebrow">Claim Quality Report</p>
             <h3>Ingestion trust signals</h3>
           </div>
-          <span>{payload.quality.promotion_readiness.promotable} promotion-ready</span>
+          <span>{payload.quality.promotion_readiness.effective_promotable} effective promotion-ready</span>
         </div>
         <div className="accuracy-quality-grid">
           <div>
@@ -152,8 +154,11 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
           </div>
           <div>
             <span>Promotion readiness</span>
-            <strong>{percent(payload.quality.promotion_readiness.promotion_rate)}</strong>
-            <small>{payload.quality.promotion_readiness.promotable}/{payload.validation_results.length} claims ready</small>
+            <strong>{percent(payload.quality.promotion_readiness.effective_promotion_rate)}</strong>
+            <small>
+              {payload.quality.promotion_readiness.promotable} claim-ready,{" "}
+              {payload.quality.promotion_readiness.human_accepted_claim_only_edges} human accepted
+            </small>
           </div>
           <div>
             <span>Entity normalization</span>
@@ -176,9 +181,18 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
           </div>
           <div>
             <span>Review candidates</span>
-            <strong>{graphAgreement.claim_only_edge_count + graphAgreement.legacy_only_edge_count}</strong>
+            <strong>{graphAgreement.active_claim_only_edge_count + graphAgreement.active_legacy_only_edge_count}</strong>
             <small>
-              {graphAgreement.claim_only_edge_count} claim-only, {graphAgreement.legacy_only_edge_count} legacy-only
+              {graphAgreement.human_promoted_edge_count} human-promoted,{" "}
+              {graphAgreement.ignored_claim_only_edge_count + graphAgreement.ignored_legacy_only_edge_count} ignored
+            </small>
+          </div>
+          <div>
+            <span>Report confidence</span>
+            <strong>{percent(payload.quality.report_confidence.review_adjusted_overlap_rate)}</strong>
+            <small>
+              {payload.quality.report_confidence.confidence_level} confidence,{" "}
+              {payload.quality.report_confidence.active_mismatch_count} active mismatches
             </small>
           </div>
           <p>

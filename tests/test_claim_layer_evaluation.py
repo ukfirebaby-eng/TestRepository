@@ -540,6 +540,69 @@ def test_collect_parallel_graph_agreement_includes_mismatch_samples(tmp_path):
     ]
 
 
+def test_collect_parallel_graph_agreement_applies_review_decisions(tmp_path):
+    vault = HybridVault(tenant_id="parallel_graph_review_decisions", base_dir=str(tmp_path))
+    vault.insert_document("claim_layer_programme", "claim_layer_programme.md")
+    vault.insert_graph_topology(
+        nodes=[
+            {"id": "data_migration", "label": "Concept", "name": "Data Migration"},
+            {"id": "cutover_plan", "label": "Concept", "name": "Cutover Plan"},
+        ],
+        edges=[
+            {
+                "source_id": "data_migration",
+                "target_id": "cutover_plan",
+                "relationship": "REQUIRES",
+            },
+        ],
+        source_chunk_id="legacy_chunk",
+        document_id="claim_layer_programme",
+    )
+    vault.insert_graph_topology(
+        nodes=[
+            {"id": "entity_api_gateway", "label": "Concept", "name": "API Gateway"},
+            {"id": "entity_deployment", "label": "Concept", "name": "Deployment"},
+        ],
+        edges=[
+            {
+                "source_id": "entity_api_gateway",
+                "target_id": "entity_deployment",
+                "relationship": "BLOCKS",
+                "claim_id": "claim_2",
+                "evidence_span_ids": ["span_2"],
+            },
+        ],
+        source_chunk_id="claim_layer",
+        document_id="claim_layer_programme",
+    )
+    vault.save_accuracy_review_decision(
+        document_id="claim_layer_programme",
+        candidate_id="claim-only:entity_api_gateway:BLOCKS:entity_deployment",
+        state="accepted",
+        kind="claim-only",
+        label="api gateway blocks deployment",
+    )
+    vault.save_accuracy_review_decision(
+        document_id="claim_layer_programme",
+        candidate_id="legacy-only:entity_data_migration:REQUIRES:entity_cutover_plan",
+        state="ignored",
+        kind="legacy-only",
+        label="data migration requires cutover plan",
+    )
+
+    agreement = collect_parallel_graph_agreement(vault, "claim_layer_programme")
+
+    assert agreement["accepted_claim_only_edge_count"] == 1
+    assert agreement["ignored_claim_only_edge_count"] == 0
+    assert agreement["accepted_legacy_only_edge_count"] == 0
+    assert agreement["ignored_legacy_only_edge_count"] == 1
+    assert agreement["active_claim_only_edge_count"] == 0
+    assert agreement["active_legacy_only_edge_count"] == 0
+    assert agreement["human_promoted_edge_count"] == 1
+    assert agreement["claim_only_edges"][0]["review_state"] == "accepted"
+    assert agreement["legacy_only_edges"][0]["review_state"] == "ignored"
+
+
 def test_evaluate_parallel_graph_comparison_uses_fixture_expectations(tmp_path):
     baseline_path = FIXTURE_DIR / "claim_layer_programme_baseline.json"
     baseline = load_evaluation_baseline(baseline_path)
