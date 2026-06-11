@@ -289,6 +289,18 @@ export function AccuracyWorkspace({ documentId, documentName }: Props) {
           </aside>
         )}
         <div className="accuracy-review-reasons">
+          <span>Review drivers</span>
+          {(payload.quality.review_reason_categories ?? []).length > 0 ? (
+            payload.quality.review_reason_categories?.map((item) => (
+              <small key={item.category} title={item.examples.join("\n")}>
+                {item.label} ({item.count})
+              </small>
+            ))
+          ) : (
+            <small>No categorized review drivers recorded.</small>
+          )}
+        </div>
+        <div className="accuracy-review-reasons">
           <span>Top review reasons</span>
           {payload.quality.top_review_reasons.length > 0 ? (
             payload.quality.top_review_reasons.map((item) => (

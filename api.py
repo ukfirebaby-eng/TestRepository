@@ -448,6 +448,62 @@ def _ratio(numerator: int, denominator: int) -> float:
     return round(numerator / denominator, 4)
 
 
+_VALIDATION_REASON_CATEGORIES = {
+    "certainty": {
+        "label": "Non-explicit claim",
+        "patterns": ("explicit", "certainty"),
+    },
+    "confidence": {
+        "label": "Low confidence",
+        "patterns": ("confidence", "threshold"),
+    },
+    "generic_endpoint": {
+        "label": "Generic graph endpoint",
+        "patterns": ("too generic for graph promotion",),
+    },
+    "self_reference": {
+        "label": "Self-referential relationship",
+        "patterns": ("subject and object resolve to the same entity",),
+    },
+    "evidence_linkage": {
+        "label": "Evidence linkage issue",
+        "patterns": ("unknown evidence span", "evidence span"),
+    },
+    "date_consistency": {
+        "label": "Date consistency issue",
+        "patterns": ("end date is before start date",),
+    },
+}
+
+
+def _validation_reason_category(reason: str) -> tuple[str, str]:
+    normalized = reason.lower()
+    for category, config in _VALIDATION_REASON_CATEGORIES.items():
+        if any(pattern in normalized for pattern in config["patterns"]):
+            return category, config["label"]
+    return "other", "Other validation issue"
+
+
+def _review_reason_categories(validation_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for item in validation_results:
+        for reason in item.get("reasons", []):
+            if not reason:
+                continue
+            category, label = _validation_reason_category(str(reason))
+            group = grouped.setdefault(category, {
+                "category": category,
+                "label": label,
+                "count": 0,
+                "examples": [],
+            })
+            group["count"] += 1
+            if reason not in group["examples"] and len(group["examples"]) < 3:
+                group["examples"].append(reason)
+
+    return sorted(grouped.values(), key=lambda item: (-item["count"], item["category"]))
+
+
 def _build_accuracy_quality(
     *,
     evidence_spans: List[Dict[str, Any]],
@@ -546,6 +602,7 @@ def _build_accuracy_quality(
             {"reason": reason, "count": count}
             for reason, count in reason_counts.most_common(5)
         ],
+        "review_reason_categories": _review_reason_categories(validation_results),
     }
 
 

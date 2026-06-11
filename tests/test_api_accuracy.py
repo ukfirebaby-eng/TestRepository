@@ -231,7 +231,12 @@ def test_accuracy_payload_includes_claim_quality_report(client):
             claim_id="claim_2",
             document_id="doc_quality",
             status="needs_review",
-            reasons=["claim certainty is not explicit", "confidence below promotion threshold"],
+            reasons=[
+                "claim certainty is not explicit",
+                "confidence below promotion threshold",
+                "Claim subject is too generic for graph promotion: The programme.",
+                "Claim subject and object resolve to the same entity.",
+            ],
             can_promote=False,
         ),
     ])
@@ -398,5 +403,33 @@ def test_accuracy_payload_includes_claim_quality_report(client):
         "top_review_reasons": [
             {"reason": "claim certainty is not explicit", "count": 1},
             {"reason": "confidence below promotion threshold", "count": 1},
+            {"reason": "Claim subject is too generic for graph promotion: The programme.", "count": 1},
+            {"reason": "Claim subject and object resolve to the same entity.", "count": 1},
+        ],
+        "review_reason_categories": [
+            {
+                "category": "certainty",
+                "label": "Non-explicit claim",
+                "count": 1,
+                "examples": ["claim certainty is not explicit"],
+            },
+            {
+                "category": "confidence",
+                "label": "Low confidence",
+                "count": 1,
+                "examples": ["confidence below promotion threshold"],
+            },
+            {
+                "category": "generic_endpoint",
+                "label": "Generic graph endpoint",
+                "count": 1,
+                "examples": ["Claim subject is too generic for graph promotion: The programme."],
+            },
+            {
+                "category": "self_reference",
+                "label": "Self-referential relationship",
+                "count": 1,
+                "examples": ["Claim subject and object resolve to the same entity."],
+            },
         ],
     }

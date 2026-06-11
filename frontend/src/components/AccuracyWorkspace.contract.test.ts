@@ -17,5 +17,7 @@ describe("AccuracyWorkspace contract", () => {
     expect(source).toContain("Mark accepted");
     expect(source).toContain("Mark ignored");
     expect(source).toContain("setSelectedCandidate");
+    expect(source).toContain("Review drivers");
+    expect(source).toContain("review_reason_categories");
   });
 });

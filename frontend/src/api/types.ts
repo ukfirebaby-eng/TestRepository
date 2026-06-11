@@ -356,6 +356,12 @@ export type AccuracyQuality = {
     reason: string;
     count: number;
   }>;
+  review_reason_categories?: Array<{
+    category: string;
+    label: string;
+    count: number;
+    examples: string[];
+  }>;
 };
 
 export type AccuracyExtractionFailure = {
