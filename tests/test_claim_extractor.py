@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from core.accuracy.claim_extractor import (
     ClaimExtractionResult,
+    SYSTEM_PROMPT,
     batch_evidence_spans,
     dedupe_claims,
     extract_claims_with_failures,
@@ -40,6 +41,13 @@ def _claim(claim_id: str = "claim_1") -> ExtractedClaim:
         source_quote="Cloud migration requires Security certification.",
         confidence=0.88,
     )
+
+
+def test_system_prompt_discourages_generic_claim_endpoints():
+    assert "concrete named work items" in SYSTEM_PROMPT
+    assert "Do not use generic labels" in SYSTEM_PROMPT
+    assert "the programme" in SYSTEM_PROMPT
+    assert "unless qualified by a specific name" in SYSTEM_PROMPT
 
 
 def test_parse_claim_response_returns_claims():

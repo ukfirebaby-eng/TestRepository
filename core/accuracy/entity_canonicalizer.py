@@ -11,6 +11,54 @@ _TRAILING_ALIAS_WORDS = {
     "workstream",
 }
 
+_GENERIC_ENTITY_WORDS = {
+    "activity",
+    "approval",
+    "blocker",
+    "condition",
+    "date",
+    "deadline",
+    "dependency",
+    "deliverable",
+    "document",
+    "evidence",
+    "gate",
+    "initiative",
+    "item",
+    "milestone",
+    "plan",
+    "prerequisite",
+    "process",
+    "program",
+    "programme",
+    "project",
+    "requirement",
+    "schedule",
+    "stage",
+    "task",
+    "testing",
+    "thing",
+    "work",
+    "workstream",
+}
+
+_GENERIC_ENTITY_PRONOUNS = {
+    "he",
+    "her",
+    "him",
+    "his",
+    "it",
+    "its",
+    "she",
+    "that",
+    "their",
+    "them",
+    "these",
+    "they",
+    "this",
+    "those",
+}
+
 
 def _tokens(name: str) -> list[str]:
     cleaned = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
@@ -42,6 +90,16 @@ def canonical_entity_id(name: str) -> str:
     tokens = _tokens(name)
     slug = "_".join(tokens) or "unknown"
     return f"entity_{slug}"
+
+
+def is_generic_entity_name(name: str) -> bool:
+    tokens = _tokens(name)
+    if not tokens:
+        return True
+    generic_terms = _GENERIC_ENTITY_WORDS | _GENERIC_ENTITY_PRONOUNS
+    if len(tokens) == 1 and tokens[0] in generic_terms:
+        return True
+    return all(token in generic_terms for token in tokens)
 
 
 def _infer_entity_type(name: str) -> str:

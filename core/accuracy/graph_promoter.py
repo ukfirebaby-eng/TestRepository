@@ -1,4 +1,4 @@
-from core.accuracy.entity_canonicalizer import canonical_entity_id, canonical_entity_name
+from core.accuracy.entity_canonicalizer import canonical_entity_id, canonical_entity_name, is_generic_entity_name
 from core.accuracy.schemas import ExtractedClaim
 
 
@@ -24,6 +24,8 @@ def promote_claim_to_topology(claim: ExtractedClaim) -> dict:
     source_id = canonical_entity_id(claim.subject)
     target_id = canonical_entity_id(claim.object)
     if source_id == target_id:
+        return {"nodes": [], "edges": []}
+    if is_generic_entity_name(claim.subject) or is_generic_entity_name(claim.object):
         return {"nodes": [], "edges": []}
 
     return {

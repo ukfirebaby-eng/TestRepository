@@ -2,6 +2,7 @@ from core.accuracy.entity_canonicalizer import (
     build_canonical_entities_from_claims,
     canonical_entity_id,
     canonical_entity_name,
+    is_generic_entity_name,
 )
 from core.accuracy.schemas import ExtractedClaim
 
@@ -21,6 +22,18 @@ def test_canonical_entity_id_preserves_meaningful_system_suffixes():
 
 def test_canonical_entity_name_preserves_acronyms():
     assert canonical_entity_name("The API Gateway Programme") == "API Gateway"
+
+
+def test_generic_entity_name_flags_weak_graph_endpoints():
+    assert is_generic_entity_name("the programme") is True
+    assert is_generic_entity_name("approval") is True
+    assert is_generic_entity_name("their plan") is True
+    assert is_generic_entity_name("this") is True
+
+
+def test_generic_entity_name_allows_specific_business_endpoints():
+    assert is_generic_entity_name("Cloud Migration") is False
+    assert is_generic_entity_name("Security Steering Board approval") is False
 
 
 def test_build_canonical_entities_groups_claim_aliases_and_source_spans():

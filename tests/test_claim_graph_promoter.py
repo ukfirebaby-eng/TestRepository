@@ -92,6 +92,25 @@ def test_claim_with_canonical_alias_self_edge_does_not_promote():
     assert promote_claim_to_topology(claim) == {"nodes": [], "edges": []}
 
 
+def test_claim_with_generic_endpoint_does_not_promote():
+    claim = ExtractedClaim(
+        claim_id="claim_1",
+        document_id="doc_1",
+        claim_type="dependency",
+        subject="The programme",
+        predicate="requires",
+        object="approval",
+        modality="must",
+        certainty="explicit",
+        evidence_span_ids=["span_1"],
+        source_quote="The programme requires approval.",
+        confidence=0.9,
+        validation_status="passed",
+    )
+
+    assert promote_claim_to_topology(claim) == {"nodes": [], "edges": []}
+
+
 def test_claim_promotion_uses_canonical_entity_ids_and_names():
     claim = ExtractedClaim(
         claim_id="claim_1",

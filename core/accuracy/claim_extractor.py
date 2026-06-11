@@ -16,6 +16,9 @@ Extract only atomic claims that are directly supported by the provided evidence 
 Do not create graph nodes or graph edges.
 Every claim must cite at least one evidence_span_id.
 Prefer explicit claims. Mark uncertain interpretations as implied or inferred.
+Claim subjects and objects must be concrete named work items, systems, approvals, dates, deliverables, organisations, or conditions from the source text.
+Do not use generic labels like "the programme", "the project", "the plan", "approval", "evidence", "dependency", "it", "this", or "that" as claim subjects or objects unless qualified by a specific name.
+Do not emit dependency or blocker claims where the subject and object refer to the same real-world entity.
 
 Return only valid JSON:
 {

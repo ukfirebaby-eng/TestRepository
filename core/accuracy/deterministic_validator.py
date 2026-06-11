@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 
+from core.accuracy.entity_canonicalizer import canonical_entity_id, is_generic_entity_name
 from core.accuracy.schemas import ExtractedClaim, ValidationResult
 
 
@@ -19,6 +20,15 @@ def validate_claim(claim: ExtractedClaim, *, known_span_ids: Iterable[str]) -> V
 
     if claim.confidence < PROMOTION_CONFIDENCE_THRESHOLD:
         reasons.append("Confidence below promotion threshold.")
+
+    if canonical_entity_id(claim.subject) == canonical_entity_id(claim.object):
+        reasons.append("Claim subject and object resolve to the same entity.")
+
+    if is_generic_entity_name(claim.subject):
+        reasons.append(f"Claim subject is too generic for graph promotion: {claim.subject}.")
+
+    if is_generic_entity_name(claim.object):
+        reasons.append(f"Claim object is too generic for graph promotion: {claim.object}.")
 
     if claim.date_start and claim.date_end and claim.date_end < claim.date_start:
         reasons.append("Claim end date is before start date.")
