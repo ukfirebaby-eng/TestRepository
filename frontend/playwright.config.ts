@@ -19,7 +19,8 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   webServer: {
-    command: "python ../run.py",
+    command: "python run.py",
+    cwd: "..",
     url: baseURL,
     reuseExistingServer: true,
     timeout: 120_000,
