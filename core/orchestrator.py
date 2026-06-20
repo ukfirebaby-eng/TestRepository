@@ -2,7 +2,6 @@ import fitz  # PyMuPDF
 import uuid
 import re
 import csv
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,6 +15,7 @@ from core.accuracy.deterministic_validator import validate_claim
 from core.accuracy.entity_canonicalizer import build_canonical_entities_from_claims
 from core.accuracy.evidence_span_builder import build_evidence_spans, compute_source_hash
 from core.accuracy.graph_promoter import promote_claim_to_topology
+from core.accuracy.pipeline_mode import PipelineMode, resolve_pipeline_mode
 from core.accuracy.schemas import DocumentManifest
 from core.risk_finding import build_risk_finding
 
@@ -36,12 +36,6 @@ class DiamondOrchestrator:
         print(msg)
         if self._log_fn:
             self._log_fn(msg)
-
-    def _claim_layer_enabled(self) -> bool:
-        return os.environ.get("DIAMOND_MINER_CLAIM_LAYER", "").strip() == "1"
-
-    def _claim_promotion_enabled(self) -> bool:
-        return os.environ.get("DIAMOND_MINER_USE_CLAIM_PROMOTION", "").strip() == "1"
 
     def _parse_pdf_with_geometry(self, file_path: str) -> List[Dict[str, Any]]:
         """
@@ -223,16 +217,26 @@ class DiamondOrchestrator:
                     document_id=self.document_id
                 )
 
+    def _store_single_chunk(self, chunk: Dict[str, Any]) -> None:
+        self.vault.insert_document_chunk(
+            chunk_id=chunk["chunk_id"],
+            document_id=self.document_id,
+            text=chunk["text"],
+            page=chunk["page"],
+            bbox=chunk["bbox"],
+        )
+
     def run_ingestion_pipeline(self, file_path: str, max_workers: int = 10) -> None:
         """
         The Main Execution Loop. Orchestrates parallel processing and enforces the synchronization barrier.
         """
+        pipeline_mode = resolve_pipeline_mode()
         self.vault.insert_document(self.document_id, self.document_name)
         self._emit(f"[*] Orchestrator: Parsing document {self.document_id}...")
         chunks = self._parse_document(file_path)
         source_text = "\n\n".join(chunk["text"] for chunk in chunks)
         source_hash = compute_source_hash(source_text)
-        if self._claim_layer_enabled():
+        if pipeline_mode in (PipelineMode.SHADOW, PipelineMode.CLAIMS):
             manifest = DocumentManifest(
                 document_id=self.document_id,
                 filename=self.document_name,
@@ -274,31 +278,36 @@ class DiamondOrchestrator:
                 "extraction_failures": len(extraction_result.failures),
             }
             self.accuracy_metrics.update(extraction_result.metrics)
-            if self._claim_promotion_enabled():
-                promoted_nodes = []
-                promoted_edges = []
-                for claim in validated_claims:
-                    topology = promote_claim_to_topology(claim)
-                    promoted_nodes.extend(topology["nodes"])
-                    promoted_edges.extend(topology["edges"])
-                if promoted_nodes or promoted_edges:
-                    self.vault.insert_graph_topology(
-                        nodes=promoted_nodes,
-                        edges=promoted_edges,
-                        source_chunk_id="claim_layer",
-                        document_id=self.document_id,
-                    )
+            promoted_nodes = []
+            promoted_edges = []
+            for claim in validated_claims:
+                topology = promote_claim_to_topology(claim)
+                promoted_nodes.extend(topology["nodes"])
+                promoted_edges.extend(topology["edges"])
+            if promoted_nodes or promoted_edges:
+                self.vault.insert_graph_topology(
+                    nodes=promoted_nodes,
+                    edges=promoted_edges,
+                    source_chunk_id="claim_layer",
+                    document_id=self.document_id,
+                )
             promotable_count = sum(1 for result in validation_results if result.can_promote)
             self._emit(
                 f"[*] Claim Layer: Stored {len(spans)} evidence span(s), "
                 f"{len(claims)} claim(s), {promotable_count} promotable, "
                 f"{len(extraction_result.failures)} extraction failure(s)."
             )
-        self._emit(f"[*] Orchestrator: Extracted {len(chunks)} geometric chunks. Beginning parallel Deconstruction.")
+        if pipeline_mode in (PipelineMode.LEGACY, PipelineMode.SHADOW):
+            worker = self._process_single_chunk
+            stage = "parallel Deconstruction"
+        else:
+            worker = self._store_single_chunk
+            stage = "claim-authoritative chunk storage"
+        self._emit(f"[*] Orchestrator: Extracted {len(chunks)} geometric chunks. Beginning {stage}.")
 
         # Spin up concurrent threads to blast through the document chunk-by-chunk
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(self._process_single_chunk, chunk) for chunk in chunks]
+            futures = [executor.submit(worker, chunk) for chunk in chunks]
 
             # The Synchronization Barrier: Wait for all threads to finish
             for count, future in enumerate(as_completed(futures), 1):

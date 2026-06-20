@@ -1360,7 +1360,9 @@ async def get_config():
         "FAST_MODEL":          vals.get("FAST_MODEL", ""),
         "SMART_MODEL":         vals.get("SMART_MODEL", ""),
         "VAULT_PATH":          vals.get("VAULT_PATH", ""),
+        "DIAMOND_MINER_PIPELINE_MODE": vals.get("DIAMOND_MINER_PIPELINE_MODE", ""),
         "DIAMOND_MINER_CLAIM_LAYER": vals.get("DIAMOND_MINER_CLAIM_LAYER", ""),
+        "DIAMOND_MINER_USE_CLAIM_PROMOTION": vals.get("DIAMOND_MINER_USE_CLAIM_PROMOTION", ""),
     }
 
 
@@ -1371,7 +1373,9 @@ class ConfigUpdate(BaseModel):
     FAST_MODEL: str = ""
     SMART_MODEL: str = ""
     VAULT_PATH: str = ""
+    DIAMOND_MINER_PIPELINE_MODE: Literal["", "legacy", "shadow", "claims"] = ""
     DIAMOND_MINER_CLAIM_LAYER: Literal["", "0", "1"] = ""
+    DIAMOND_MINER_USE_CLAIM_PROMOTION: Literal["", "0", "1"] = ""
 
 
 def _resolve_key(submitted: str, existing: str) -> str:
@@ -1393,7 +1397,9 @@ async def update_config(body: ConfigUpdate):
         "FAST_MODEL":         body.FAST_MODEL,
         "SMART_MODEL":        body.SMART_MODEL,
         "VAULT_PATH":         body.VAULT_PATH,
+        "DIAMOND_MINER_PIPELINE_MODE": body.DIAMOND_MINER_PIPELINE_MODE,
         "DIAMOND_MINER_CLAIM_LAYER": body.DIAMOND_MINER_CLAIM_LAYER,
+        "DIAMOND_MINER_USE_CLAIM_PROMOTION": body.DIAMOND_MINER_USE_CLAIM_PROMOTION,
     }
     write_env(env_path, values)
     load_dotenv(dotenv_path=env_path, override=True)

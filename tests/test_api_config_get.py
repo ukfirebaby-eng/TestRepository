@@ -37,7 +37,8 @@ class TestGetConfig:
         body = response.json()
         for key in ("LLM_PROVIDER", "OPENAI_API_KEY", "OPENROUTER_API_KEY",
                     "FAST_MODEL", "SMART_MODEL", "VAULT_PATH",
-                    "DIAMOND_MINER_CLAIM_LAYER"):
+                    "DIAMOND_MINER_PIPELINE_MODE", "DIAMOND_MINER_CLAIM_LAYER",
+                    "DIAMOND_MINER_USE_CLAIM_PROMOTION"):
             assert key in body
 
     def test_returns_plain_values_for_non_key_fields(self, client):
@@ -45,13 +46,17 @@ class TestGetConfig:
         env_file.write_text(
             'LLM_PROVIDER="openrouter"\n'
             'FAST_MODEL="gpt-4o-mini"\n'
+            'DIAMOND_MINER_PIPELINE_MODE="shadow"\n'
             'DIAMOND_MINER_CLAIM_LAYER="1"\n'
+            'DIAMOND_MINER_USE_CLAIM_PROMOTION="0"\n'
         )
         response = test_client.get("/api/v1/config")
         body = response.json()
         assert body["LLM_PROVIDER"] == "openrouter"
         assert body["FAST_MODEL"] == "gpt-4o-mini"
+        assert body["DIAMOND_MINER_PIPELINE_MODE"] == "shadow"
         assert body["DIAMOND_MINER_CLAIM_LAYER"] == "1"
+        assert body["DIAMOND_MINER_USE_CLAIM_PROMOTION"] == "0"
 
     def test_masks_api_keys_longer_than_12_chars(self, client):
         test_client, env_file = client
