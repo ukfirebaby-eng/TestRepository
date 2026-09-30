@@ -2,5 +2,9 @@
 # Python >= 3.11 required
 # No external dependencies - uses Python stdlib only
 #
+# Optional: Jev-backed error classification (scheduler/jev_classifier.py):
+#   pip install typesafe-sdk
+#   export TYPESAFE_API_KEY=...
+#
 # Development / testing:
 #   pip install pytest
